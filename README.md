@@ -64,30 +64,58 @@ Notes
 - `n` is clamped per provider (e.g., DALL·E 3 uses `n=1`).
 
 
+
 Tool Reference
 --------------
 
-All tools are exposed by FastMCP and take a single argument named `req` shaped by the Pydantic models in `src/schema.py`. Wrap calls as `{ "req": { ... } }`.
+All tools are exposed by FastMCP and accept named parameters (they no longer require a single `req` object). Callers should pass the tool arguments as top-level named parameters matching the Pydantic models in `src/schema.py`.
 
-get_model_capabilities
+Examples (FastMCP / programmatic clients)
+
+`get_model_capabilities`
 
 - Purpose: Discover enabled engines and normalized knobs given current credentials.
-- Input: `{ "req": { "provider"?: "openai" | "openrouter" | "azure" | "vertex" | "gemini" } }`
-- Output: `{ ok: true, capabilities: CapabilityReport[] }` (or `{ ok:false, error }`)
+- Input example (call with named parameter): `{"provider": "openai"}` or omit `provider` to list all enabled engines.
+- Output: `CapabilitiesResponse` (e.g., `{ "ok": true, "capabilities": [CapabilityReport, ...] }`).
 
-generate_image
+`generate_image`
 
 - Purpose: Create one or more images from a text prompt.
-- Required: `prompt`
-- Optional: `provider`, `model`, `n`, `size`, `size_code`, `orientation`, `quality`, `background`, `negative_prompt`, `extras`
-- Behavior: Unsupported knobs are dropped.
+- Required: `prompt` (string)
+- Example call (named parameters):
 
-edit_image
+```
+{
+    "prompt": "A vibrant painting of a fox in a sunflower field",
+    "provider": "openai",
+    "model": "gpt-image-1",
+    "n": 2,
+    "size": "M",
+    "orientation": "landscape"
+}
+```
+
+- Optional: `provider`, `model`, `n`, `size`, `orientation`, `quality`, `background`, `negative_prompt`, `extras`.
+- Behavior: Unsupported knobs are dropped or normalized by the engine adapter; `n` is clamped per provider.
+
+`edit_image`
 
 - Purpose: Edit an image using a prompt and optional mask.
-- Required: `prompt`, and one of `image` or `images[0]` (base64, data URL, or HTTP(S) URL)
-- Optional: `mask`, `provider`, `model`, `n`, `size`, `size_code`, `orientation`, `quality`, `background`, `negative_prompt`, `extras`
-- Note: Edited images are returned as base64 for most providers.
+- Required: `prompt`, and at least one source image in `images` (use `images[0]` for single-image providers). Supported encodings: data URL, base64, or HTTP(S) URL.
+- Example call (named parameters):
+
+```
+{
+    "prompt": "Remove the background and make the subject wear a red scarf",
+    "provider": "openai",
+    "model": "gpt-image-1",
+    "images": ["data:image/png;base64,..."],
+    "mask": null
+}
+```
+
+- Optional: `mask`, `provider`, `model`, `n`, `size`, `orientation`, `quality`, `background`, `negative_prompt`, `extras`.
+- Note: Edited images are returned as ImageContent blocks and adapter metadata; many providers return base64-encoded image blobs internally.
 
 
 Request Field Guide

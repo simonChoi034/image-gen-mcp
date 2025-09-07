@@ -4,6 +4,7 @@ from typing import Annotated, Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.tools.tool import ToolResult
+from loguru import logger
 from pydantic import Field
 
 from .engines import ModelFactory
@@ -25,9 +26,7 @@ from .shard.enums import (
 )
 from .shard.instructions import SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS
 from .utils.error_helpers import augment_with_capability_tip
-from .utils.logging import get_logger
 
-logger = get_logger("image_gen_mcp")
 app = FastMCP("image-gen-mcp", instructions=SERVER_INSTRUCTIONS)
 # Obtain settings explicitly and inject into tool handlers via closure capture.
 # settings = get_settings()  # Removed to allow mocking in tests
