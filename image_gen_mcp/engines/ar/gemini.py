@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import base64
-import logging
 from enum import StrEnum
 from typing import Any
+
+from loguru import logger
 
 from ...schema import (
     CapabilityReport,
@@ -29,7 +30,6 @@ from ...shard.enums import (
 from ...utils.prompt import render_prompt_with_guidance
 from ..base_engine import ImageEngine
 
-logger = logging.getLogger(__name__)
 settings = get_settings()
 
 

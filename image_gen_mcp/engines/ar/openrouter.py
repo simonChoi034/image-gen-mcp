@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from enum import StrEnum
 from typing import Any
 
@@ -29,7 +28,6 @@ from ...utils.error_helpers import augment_with_capability_tip
 from ...utils.prompt import render_prompt_with_guidance
 from ..base_engine import ImageEngine
 
-logger = logging.getLogger(__name__)
 settings = get_settings()
 
 

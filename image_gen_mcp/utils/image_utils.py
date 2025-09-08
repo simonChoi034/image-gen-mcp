@@ -3,8 +3,13 @@ from __future__ import annotations
 import base64
 import mimetypes
 import os
+import tempfile
 import urllib.request
+from datetime import datetime
 from urllib.parse import unquote, urlparse
+from uuid import uuid4
+
+from loguru import logger
 
 from ..shard import constants as C
 
@@ -148,6 +153,151 @@ def to_image_data_url(source: str, *, validate_remote: bool = False) -> str:
     return f"data:{mime};base64,{b64}"
 
 
+def guess_extension_from_mime(mime: str) -> str:
+    """Guess file extension from MIME type."""
+    if mime.endswith("/png"):
+        return ".png"
+    elif mime.endswith("/jpeg") or mime.endswith("/jpg"):
+        return ".jpg"
+    elif mime.endswith("/webp"):
+        return ".webp"
+    elif mime.endswith("/gif"):
+        return ".gif"
+    else:
+        return ".png"  # Default fallback
+
+
+def ensure_directory(directory: str | None) -> str:
+    """Ensure directory exists, creating if necessary. Returns absolute path.
+
+    If directory is None, creates a temporary directory.
+    """
+    if directory is None:
+        # Create a temporary directory
+        return tempfile.mkdtemp(prefix="image_gen_mcp_", dir=tempfile.gettempdir())
+
+    # Convert to absolute path
+    abs_directory = os.path.abspath(directory)
+
+    # Create directory if it doesn't exist
+    try:
+        os.makedirs(abs_directory, exist_ok=True)
+    except (OSError, PermissionError) as e:
+        # Fallback to temp directory on error
+        temp_dir = tempfile.mkdtemp(prefix="image_gen_mcp_fallback_", dir=tempfile.gettempdir())
+        raise ValueError(f"Cannot create directory {abs_directory}: {e}. Using temp directory: {temp_dir}") from e
+
+    return abs_directory
+
+
+def save_image_bytes(image_bytes: bytes, directory: str | None, mime_type: str = C.DEFAULT_MIME) -> str:
+    """Save image bytes to disk and return the absolute path.
+
+    Args:
+        image_bytes: Raw image data
+        directory: Target directory (None for temp directory)
+        mime_type: MIME type for determining file extension
+
+    Returns:
+        Absolute path to the saved file
+
+    Raises:
+        ValueError: If directory creation fails or image saving fails
+    """
+    # Ensure target directory exists
+    target_dir = ensure_directory(directory)
+
+    # Generate unique filename with timestamp and UUID
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    unique_id = str(uuid4())[:8]  # Short UUID for readability
+    extension = guess_extension_from_mime(mime_type)
+    filename = f"{timestamp}_{unique_id}{extension}"
+
+    # Full path
+    file_path = os.path.join(target_dir, filename)
+
+    # Write image bytes to file
+    try:
+        with open(file_path, "wb") as f:
+            f.write(image_bytes)
+    except (OSError, PermissionError) as e:
+        raise ValueError(f"Cannot write image to {file_path}: {e}") from e
+
+    return os.path.abspath(file_path)
+
+
+def save_image_from_data_url(data_url: str, directory: str | None) -> str:
+    """Save image from data URL to disk and return the absolute path.
+
+    Args:
+        data_url: Data URL containing image data
+        directory: Target directory (None for temp directory)
+
+    Returns:
+        Absolute path to the saved file
+
+    Raises:
+        ValueError: If data URL is invalid or saving fails
+    """
+    try:
+        # Parse data URL
+        header, payload = data_url.split(",", 1)
+    except ValueError:
+        raise ValueError("Invalid data URL format")
+
+    # Extract MIME type
+    mime_type = C.DEFAULT_MIME
+    try:
+        mime_type = header.split(";")[0].split(":", 1)[1] or C.DEFAULT_MIME
+    except Exception:
+        pass
+
+    # Decode base64 content
+    try:
+        image_bytes = base64.b64decode(payload)
+    except Exception as e:
+        raise ValueError(f"Cannot decode base64 data: {e}") from e
+
+    return save_image_bytes(image_bytes, directory, mime_type)
+
+
+def save_images_from_response(resp: object, directory: str | None) -> None:
+    """Save images embedded in an ImageResponse to disk and update their file_path.
+
+    This inspects `resp.content` for ResourceContent entries with `resource.blob` set
+    (base64-encoded), decodes and writes them to `directory` (or a tempdir when None),
+    and sets `resource.file_path` to the absolute path on success. Errors for individual
+    images are logged and do not stop processing of other images.
+    """
+
+    # logger is module-level; local reference kept for tests
+    # (we avoid importing ImageResponse here to prevent circular imports)
+
+    for part in getattr(resp, "content", []) or []:
+        if getattr(part, "type", None) != "resource":
+            continue
+
+        resource = getattr(part, "resource", None)
+        if not resource or not getattr(resource, "blob", None):
+            continue
+
+        try:
+            # Decode base64 image data
+            image_bytes = base64.b64decode(resource.blob)
+            mime_type = getattr(resource, "mimeType", None) or C.DEFAULT_MIME
+
+            # Save to disk using existing helper
+            file_path = save_image_bytes(image_bytes, directory, mime_type)
+
+            # Update the resource with the file path
+            setattr(resource, "file_path", file_path)
+
+        except Exception as e:
+            logger.error(f"Failed to save image {getattr(resource, 'name', 'unknown')}: {e}")
+            # Continue processing other images even if one fails
+            continue
+
+
 __all__ = [
     "is_url",
     "is_data_url",
@@ -157,4 +307,9 @@ __all__ = [
     "validate_image_bytes",
     "read_image_bytes_and_mime",
     "to_image_data_url",
+    "guess_extension_from_mime",
+    "ensure_directory",
+    "save_image_bytes",
+    "save_image_from_data_url",
+    "save_images_from_response",
 ]

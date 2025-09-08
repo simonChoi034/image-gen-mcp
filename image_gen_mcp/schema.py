@@ -44,6 +44,7 @@ class EmbeddedResource(BaseModel):
     mimeType: str = Field(description="MIME type of the resource content (e.g., 'image/png').")
     blob: str = Field(description="Base64-encoded resource content.")
     description: str | None = Field(default=None, description="Optional human-readable description.")
+    file_path: str | None = Field(default=None, description="Absolute filesystem path where the image was saved, if applicable.")
 
 
 class ResourceContent(BaseModel):
@@ -110,6 +111,8 @@ class ImageGenerateRequest(BaseModel):
     quality: Quality | None = Field(default=None)
     negative_prompt: str | None = Field(default=None)
     background: Background | None = Field(default=None)
+    # Optional directory to save generated images
+    directory: str | None = Field(default=None, description="Optional directory path to save generated images. If not provided, images will be saved to a temporary directory.")
 
 
 # -------------------------- Public minimal tool output ----------------------- #
@@ -121,6 +124,7 @@ class ImageDescriptor(BaseModel):
     uri: str | None = Field(default=None, description="Opaque image URI if available (no data).")
     name: str | None = Field(default=None, description="Suggested filename (no data).")
     mimeType: str | None = Field(default=None, description="MIME type for the image.")
+    file_path: str | None = Field(default=None, description="Absolute filesystem path where the image was saved, if applicable.")
 
 
 class ImageToolStructured(BaseModel):
@@ -154,7 +158,7 @@ class ImageResponse(BaseModel):
                 if getattr(part, "type", None) != "resource":
                     continue
                 res = part.resource
-                descriptors.append(ImageDescriptor(uri=res.uri, name=res.name, mimeType=res.mimeType))
+                descriptors.append(ImageDescriptor(uri=res.uri, name=res.name, mimeType=res.mimeType, file_path=getattr(res, "file_path", None)))
             except Exception:
                 # Skip malformed entries; structured output stays minimal
                 continue
@@ -232,6 +236,8 @@ class ImageEditRequest(BaseModel):
     quality: Quality | None = Field(default=None)
     negative_prompt: str | None = Field(default=None)
     background: Background | None = Field(default=None)
+    # Optional directory to save edited images
+    directory: str | None = Field(default=None, description="Optional directory path to save edited images. If not provided, images will be saved to a temporary directory.")
 
     # Pre-process to normalize legacy inputs into images[0] without exposing them
     # in the public schema.
