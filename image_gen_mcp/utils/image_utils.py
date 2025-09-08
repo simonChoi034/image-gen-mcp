@@ -185,7 +185,8 @@ def ensure_directory(directory: str | None) -> str:
     except (OSError, PermissionError) as e:
         # Fallback to temp directory on error
         temp_dir = tempfile.mkdtemp(prefix="image_gen_mcp_fallback_", dir=tempfile.gettempdir())
-        raise ValueError(f"Cannot create directory {abs_directory}: {e}. Using temp directory: {temp_dir}") from e
+        logger.warning(f"Cannot create directory {abs_directory}: {e}. Using temp directory: {temp_dir}")
+        return temp_dir
 
     return abs_directory
 
