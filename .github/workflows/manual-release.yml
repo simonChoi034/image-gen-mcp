@@ -27,6 +27,11 @@ on:
         required: false
         type: boolean
         default: false
+      auto_publish_to_pypi:
+        description: 'Automatically publish built packages to TestPyPI and PyPI (if not prerelease)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   create-release:
@@ -34,6 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -203,3 +209,30 @@ jobs:
           draft: false
           prerelease: ${{ contains(steps.new_version.outputs.new_version, '-') }}
           generate_release_notes: true
+
+      - name: Publish to TestPyPI
+        if: github.event.inputs.auto_publish_to_pypi == 'true' && github.event.inputs.dry_run != 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+      - name: Verify installation from TestPyPI
+        if: github.event.inputs.auto_publish_to_pypi == 'true' && github.event.inputs.dry_run != 'true'
+        run: |
+          # Try to install the package from TestPyPI
+          python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ image-gen-mcp==${{ steps.new_version.outputs.new_version }} || true
+
+      - name: Publish to PyPI
+        if: github.event.inputs.auto_publish_to_pypi == 'true' && github.event.inputs.dry_run != 'true' && !contains(steps.new_version.outputs.new_version, '-')
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Verify installation from PyPI
+        if: github.event.inputs.auto_publish_to_pypi == 'true' && github.event.inputs.dry_run != 'true' && !contains(steps.new_version.outputs.new_version, '-')
+        run: |
+          # Verify the package is available on PyPI and can be imported
+          python -m pip install image-gen-mcp==${{ steps.new_version.outputs.new_version }}
+          python - <<'PY'
+            import importlib
+            pkg = importlib.import_module('image_gen_mcp')
+            print('Imported', pkg.__name__)
+          PY

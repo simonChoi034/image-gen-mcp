@@ -12,6 +12,41 @@ Provider-agnostic MCP server for image generation and editing, built on FastMCP 
 > This `README.md` file is the canonical reference for the server's API, capabilities, and usage. Other design documents in the `/docs` directory may contain outdated information from earlier design phases. Please rely on this document as the single source of truth.
 
 
+Installation
+------------
+
+### From PyPI
+
+```bash
+# Regular installation
+pip install image-gen-mcp
+
+# With uv
+uv add image-gen-mcp
+
+# With uvx (recommended for MCP usage)
+uvx --from image-gen-mcp image-gen-mcp
+```
+
+### MCP Integration
+
+Add to your `mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "image-gen-mcp": {
+      "command": "uvx",
+      "args": ["--from", "image-gen-mcp", "image-gen-mcp"],
+      "env": {
+        "OPENAI_API_KEY": "your-key-here"
+      }
+    }
+  }
+}
+```
+
+
 Quick Start
 -----------
 
@@ -261,6 +296,40 @@ Design Notes
 Dev Workflow
 ------------
 
-- Lint: `ruff check .`  Format: `black .`
-- Types: `pyright`
-- Tests: `pytest -q`
+### Local Development
+
+```bash
+# Setup
+uv sync --all-extras --dev
+
+# Test local build
+uv build
+./test-installation.sh
+
+# Run tests
+uv run pytest -v
+
+# Linting
+uv run ruff check .
+uv run black --check .
+uv run pyright
+```
+
+### Creating a Release
+
+1. **Automated (Recommended)**:
+
+   - Go to GitHub Actions
+   - Run "Manual Release" workflow
+   - Choose version type (patch/minor/major)
+   - Wait for completion
+
+1. **Manual**:
+
+   ```bash
+   # Create and push tag
+   git tag v1.0.0
+   git push origin v1.0.0
+
+   # Create GitHub release from the web interface
+   ```
