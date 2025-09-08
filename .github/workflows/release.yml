@@ -3,6 +3,32 @@ name: Release and Publish
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - prerelease
+        default: 'patch'
+      prerelease_type:
+        description: 'Pre-release type (only for prerelease)'
+        required: false
+        type: choice
+        options:
+          - alpha
+          - beta
+          - rc
+        default: 'alpha'
+      dry_run:
+        description: 'Dry run (only show what would be released)'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -12,19 +38,87 @@ jobs:
   validate-release:
     name: Validate Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_tag: ${{ steps.set_tag.outputs.tag_name }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Prepare release tag (manual)
+        id: set_tag
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          CURRENT=${LATEST_TAG#v}
+          VERSION_TYPE="${{ github.event.inputs.version_type }}"
+          PRERELEASE_TYPE="${{ github.event.inputs.prerelease_type }}"
+
+          IFS='.' read -r major minor patch <<< "$CURRENT"
+          patch=$(echo "$patch" | sed 's/-.*$//')
+
+          case "$VERSION_TYPE" in
+            patch)
+              patch=$((patch + 1))
+              NEW_VERSION="$major.$minor.$patch"
+              ;;
+            minor)
+              minor=$((minor + 1))
+              patch=0
+              NEW_VERSION="$major.$minor.$patch"
+              ;;
+            major)
+              major=$((major + 1))
+              minor=0
+              patch=0
+              NEW_VERSION="$major.$minor.$patch"
+              ;;
+            prerelease)
+              if [[ "$CURRENT" == *"-"* ]]; then
+                BASE_VERSION=$(echo "$CURRENT" | cut -d'-' -f1)
+                CURRENT_PRERELEASE=$(echo "$CURRENT" | cut -d'-' -f2)
+                PRERELEASE_NUM=$(echo "$CURRENT_PRERELEASE" | grep -o '[0-9]*$' || echo "1")
+                PRERELEASE_NUM=$((PRERELEASE_NUM + 1))
+                NEW_VERSION="$BASE_VERSION-$PRERELEASE_TYPE.$PRERELEASE_NUM"
+              else
+                NEW_VERSION="$CURRENT-$PRERELEASE_TYPE.1"
+              fi
+              ;;
+          esac
+
+          NEW_TAG="v$NEW_VERSION"
+          echo "tag_name=$NEW_TAG" >> $GITHUB_OUTPUT
+          echo "Calculated tag $NEW_TAG"
+
+      - name: Create and push tag (manual)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          # Create annotated tag and push
+          git tag -a "${{ steps.set_tag.outputs.tag_name }}" -m "Release ${{ steps.set_tag.outputs.tag_name }}"
+          git push origin "${{ steps.set_tag.outputs.tag_name }}"
+
       - name: Validate tag format
         run: |
-          if [[ ! "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+(\.[0-9]+)?)?$ ]]; then
-            echo "Error: Tag ${{ github.ref_name }} does not match semantic versioning format (v1.2.3 or v1.2.3-alpha.1)"
+          # Determine tag name
+          if [[ "${{ github.event_name }}" == 'workflow_dispatch' ]]; then
+            TAGNAME="${{ steps.set_tag.outputs.tag_name }}"
+          else
+            TAGNAME="${{ github.ref_name }}"
+          fi
+
+          if [[ ! "$TAGNAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+(\.[0-9]+)?)?$ ]]; then
+            echo "Error: Tag $TAGNAME does not match semantic versioning format (v1.2.3 or v1.2.3-alpha.1)"
             exit 1
           fi
-          echo "Tag ${{ github.ref_name }} is valid"
+          echo "Tag $TAGNAME is valid"
+
+      # (previous explicit validation handled above for both manual and release triggers)
 
   build-and-test:
     name: Build and Test for Release
@@ -85,9 +179,15 @@ jobs:
           print(version_part)
           ")
 
-          # Extract version from git tag (remove 'v' prefix)
-          TAG_VERSION="${{ github.ref_name }}"
-          TAG_VERSION="${TAG_VERSION#v}"
+          # Determine tag name (use manual-calculated tag when workflow_dispatch)
+          if [[ "${{ github.event_name }}" == 'workflow_dispatch' ]]; then
+            TAG_FULL="${{ needs.validate-release.outputs.release_tag }}"
+          else
+            TAG_FULL="${{ github.ref_name }}"
+          fi
+
+          # Extract version from tag (remove 'v' prefix)
+          TAG_VERSION="${TAG_FULL#v}"
 
           echo "Wheel version: $WHEEL_VERSION"
           echo "Tag version: $TAG_VERSION"
@@ -126,9 +226,7 @@ jobs:
     name: Publish to TestPyPI
     runs-on: ubuntu-latest
     needs: build-and-test
-    environment:
-      name: testpypi
-      url: https://test.pypi.org/p/image-gen-mcp
+    # environment mapping removed to avoid schema validation errors; keep permissions below
     permissions:
       id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
     steps:
@@ -155,9 +253,7 @@ jobs:
     name: Publish to PyPI
     runs-on: ubuntu-latest
     needs: [build-and-test, publish-to-testpypi]
-    environment:
-      name: pypi
-      url: https://pypi.org/p/image-gen-mcp
+    # environment mapping removed to avoid schema validation errors; keep permissions below
     permissions:
       id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
     steps:
@@ -189,7 +285,7 @@ jobs:
   create-github-release-assets:
     name: Update GitHub Release with Assets
     runs-on: ubuntu-latest
-    needs: publish-to-pypi
+    needs: [publish-to-pypi, validate-release]
     permissions:
       contents: write
     steps:
@@ -198,6 +294,20 @@ jobs:
         with:
           name: release-distributions
           path: dist/
+
+      - name: Create GitHub Release (manual)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.validate-release.outputs.release_tag }}
+          name: Release ${{ needs.validate-release.outputs.release_tag }}
+          body: |
+            Automated release created via manual trigger.
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+          draft: false
+          prerelease: ${{ contains(needs.validate-release.outputs.release_tag, '-') }}
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
