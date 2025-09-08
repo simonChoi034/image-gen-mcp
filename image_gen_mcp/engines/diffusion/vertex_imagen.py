@@ -42,7 +42,6 @@ class ImagenErrorType(StrEnum):
     NO_IMAGES = "no_images_generated"
     SDK_MISSING = "sdk_missing"
     CONFIG_MISSING = "config_missing"
-    EDIT_NOT_SUPPORTED = "edit_not_supported"
 
 
 class ImagenResponseFormat(StrEnum):
@@ -54,8 +53,10 @@ class ImagenResponseFormat(StrEnum):
 # Try to import Google Gen AI SDK. Defer hard failure to runtime usage.
 try:  # pragma: no cover - import-time feature detection
     from google import genai as genai_sdk  # type: ignore
+    from google.genai import types as genai_types  # type: ignore
 except Exception:  # pragma: no cover - SDK not installed
     genai_sdk = None  # type: ignore
+    genai_types = None  # type: ignore
 
 
 # ============================================================================
@@ -73,7 +74,7 @@ class VertexImagen(ImageEngine):
     - Uses official Google Gen AI SDK for Vertex AI routing
     - Returns base64 images extracted from inline response parts
     - Handles parameter normalization and error conditions gracefully
-    - No edit support (Imagen limitation)
+    - Supports both image generation and editing with reference images and masks
 
     Architecture:
     - Modular error handling and response processing methods
@@ -104,16 +105,16 @@ class VertexImagen(ImageEngine):
                     supports_negative_prompt=True,
                     supports_background=False,
                     max_n=4,
-                    supports_edit=False,
-                    supports_mask=False,
+                    supports_edit=True,
+                    supports_mask=True,
                 ),
                 ModelCapability(
                     model=Model.IMAGEN_3_GENERATE,
                     supports_negative_prompt=True,
                     supports_background=False,
                     max_n=4,
-                    supports_edit=False,
-                    supports_mask=False,
+                    supports_edit=True,
+                    supports_mask=True,
                 ),
             ],
         )
@@ -210,15 +211,6 @@ class VertexImagen(ImageEngine):
             error=Error(code=ImagenErrorType.NO_IMAGES.value, message="No image content in response"),
         )
 
-    def _create_edit_not_supported_error(self, model: Model) -> ImageResponse:
-        """Create error response for unsupported edit operations."""
-        return ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code=ImagenErrorType.EDIT_NOT_SUPPORTED.value, message="Imagen edits not implemented yet."),
-        )
-
     # ========================================================================
     # RESPONSE PROCESSING
     # ========================================================================
@@ -312,6 +304,75 @@ class VertexImagen(ImageEngine):
 
     # -------------------------------- edit ------------------------------- #
     async def edit(self, req: ImageEditRequest) -> ImageResponse:  # type: ignore[override]
-        """Imagen does not support edit operations."""
+        """Edit images using Imagen via Vertex AI with reference images and optional masks."""
         model = req.model or Model.IMAGEN_4_STANDARD
-        return self._create_edit_not_supported_error(model)
+
+        # Normalize parameters
+        n, normlog = self._normalize_count(req.n)
+        aspect_ratio, resolution_hint, shape_norm = self._normalize_aspect_and_resolution(
+            size=getattr(req, "size", None),
+            orientation=getattr(req, "orientation", None),
+            quality=getattr(req, "quality", None),
+        )
+        normlog.update(shape_norm)
+
+        try:
+            # Validate required input image
+            if not req.images or len(req.images) == 0:
+                raise ValueError("images[0] is required for edit")
+            
+            image_src = req.images[0]
+            if not image_src:
+                raise ValueError("images[0] is required for edit")
+
+            # Read the base image
+            image_bytes, image_mime = self.read_image_bytes_and_mime(image_src)
+
+            # Check SDK availability
+            if genai_types is None:  # pragma: no cover
+                raise RuntimeError("google-genai SDK is required but not installed for Vertex Imagen")
+
+            # Create image part from bytes
+            image_part = genai_types.Part.from_bytes(data=image_bytes, mime_type=image_mime)
+            
+            # Prepare contents list starting with the base image
+            contents = [image_part]
+
+            # Handle optional mask
+            if req.mask:
+                mask_bytes, mask_mime = self.read_image_bytes_and_mime(req.mask)
+                mask_part = genai_types.Part.from_bytes(data=mask_bytes, mime_type=mask_mime)
+                contents.append(mask_part)
+
+            # Build guidance prompt similar to generate method
+            guidance_bits: list[str] = []
+            if aspect_ratio:
+                guidance_bits.append(f"aspect: {aspect_ratio.value}")
+            if resolution_hint:
+                guidance_bits.append(f"approx resolution: {resolution_hint.value}")
+            if getattr(req, "quality", None) is not None:
+                guidance_bits.append(f"quality: {getattr(req, 'quality').value}")
+            if getattr(req, "negative_prompt", None):
+                guidance_bits.append(f"avoid: {getattr(req, 'negative_prompt')}")
+
+            # Build the prompt with editing instruction
+            prompt = req.prompt
+            if guidance_bits:
+                prompt = req.prompt + "\n\n[guidance: " + "; ".join(guidance_bits) + "]"
+            
+            # Add the text prompt to contents
+            contents.append(prompt)
+
+            # Call the SDK
+            client = self._client()
+            resp = await client.aio.models.generate_content(model=str(model), contents=contents)
+
+            # Process response
+            images = self._collect_images_from_response(resp)
+            if not images:
+                return self._create_no_images_error(model, normlog)
+
+            return ImageResponse(ok=True, content=images, model=model)
+
+        except Exception as e:  # pragma: no cover - provider failure path
+            return self._create_provider_error(model, normlog, e)
