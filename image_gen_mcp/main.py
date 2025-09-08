@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 from typing import Annotated
 
 from fastmcp import Context, FastMCP
@@ -26,6 +27,7 @@ from .shard.enums import (
 )
 from .shard.instructions import SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS
 from .utils.error_helpers import augment_with_capability_tip
+from .utils.image_utils import save_images_from_response
 
 app = FastMCP("image-gen-mcp", instructions=SERVER_INSTRUCTIONS)
 
@@ -68,6 +70,10 @@ async def mcp_generate_image(
         Background | None,
         Field(description="Optional background alpha for AR engines supporting transparency."),
     ] = None,
+    directory: Annotated[
+        str | None,
+        Field(description="Optional directory path to save generated images. If not provided, images will be saved to a temporary directory."),
+    ] = None,
     ctx: Context | None = None,
 ) -> ToolResult:
     """Generate image(s) from a prompt.
@@ -85,6 +91,7 @@ async def mcp_generate_image(
             quality=quality,
             negative_prompt=negative_prompt,
             background=background,
+            directory=directory,
         )
 
         # Use factory's integrated validation and creation
@@ -98,6 +105,10 @@ async def mcp_generate_image(
         assert engine is not None
 
         resp = await engine.generate(req)
+
+        # Save images to disk only if response was successful
+        if resp.ok:
+            await asyncio.to_thread(save_images_from_response, resp, directory)
 
         # Convert to FastMCP ImageContent while preserving structured payload
         contents = resp.response_to_image_contents()
@@ -166,6 +177,10 @@ async def mcp_edit_image(
         Background | None,
         Field(description="Optional background alpha for AR engines supporting transparency."),
     ] = None,
+    directory: Annotated[
+        str | None,
+        Field(description="Optional directory path to save edited images. If not provided, images will be saved to a temporary directory."),
+    ] = None,
     ctx: Context | None = None,
 ) -> ToolResult:
     """Edit an image with a prompt and optional mask."""
@@ -182,6 +197,7 @@ async def mcp_edit_image(
             quality=quality,
             negative_prompt=negative_prompt,
             background=background,
+            directory=directory,
         )
 
         # Use factory's integrated validation and creation
@@ -195,6 +211,9 @@ async def mcp_edit_image(
         assert engine is not None
 
         resp = await engine.edit(req)
+
+        # Save images to disk (runs in a thread to avoid blocking the event loop)
+        await asyncio.to_thread(save_images_from_response, resp, directory)
 
         contents = resp.response_to_image_contents()
         structured = resp.build_structured_from_response()

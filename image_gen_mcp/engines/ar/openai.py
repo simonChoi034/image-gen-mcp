@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import io
-import logging
 import urllib.request
 from enum import StrEnum
 from typing import Any
@@ -32,7 +31,6 @@ from ...utils.prompt import render_prompt_with_guidance
 from ..base_engine import ImageEngine
 
 settings = get_settings()
-logger = logging.getLogger(__name__)
 # Use grouped enums for related constant sets to improve discoverability
 
 API_VERSION_DEFAULT = "2024-02-15-preview"
