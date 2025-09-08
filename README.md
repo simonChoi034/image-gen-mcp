@@ -361,6 +361,21 @@ Call `get_model_capabilities` (optionally with `"provider": "openai"` etc.).
 
 ---
 
+## ⚠️ Testing remarks
+
+I tested this project locally using the `openrouter`-backed model only. I could not access Gemini or OpenAI from my location (Hong Kong) due to regional restrictions — thanks, US government — so I couldn't fully exercise those providers.
+
+Because of that limitation, the `gemini`/`vertex` and `openai` (including Azure) adapters may contain bugs or untested edge cases. If you use those providers and find issues, please open an issue or, even better, submit a pull request with a fix — contributions are welcome.
+
+Suggested info to include when filing an issue:
+- Your provider and model (e.g., `openai:gpt-image-1`, `vertex:imagen-4.0-generate-001`)
+- Full stderr/server logs showing the error
+- Minimal reproduction steps or a short test script
+
+Thanks — and PRs welcome!
+
+---
+
 ## 🤝 Contributing & Releases
 
 PRs welcome! Please run tests and linters locally.
