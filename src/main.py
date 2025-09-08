@@ -15,7 +15,6 @@ from .schema import (
     ImageGenerateRequest,
     ImageResponse,
 )
-from .settings import get_settings
 from .shard.enums import (
     Background,
     Model,
@@ -28,8 +27,6 @@ from .shard.instructions import SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS
 from .utils.error_helpers import augment_with_capability_tip
 
 app = FastMCP("image-gen-mcp", instructions=SERVER_INSTRUCTIONS)
-# Obtain settings explicitly and inject into tool handlers via closure capture.
-# settings = get_settings()  # Removed to allow mocking in tests
 
 
 @app.tool(
@@ -241,42 +238,20 @@ async def mcp_get_model_capabilities(
 ) -> CapabilitiesResponse:
     """Return enabled engines and supported models/knobs for current credentials."""
     try:
-        settings = get_settings()
-        provider_filter = provider
-
-        capabilities = []
-
-        # Get enabled providers using the centralized helper
-        enabled_providers = ModelFactory.get_enabled_providers(settings)
-        supported_providers = [p for p, enabled in enabled_providers.items() if enabled]
-
-        if not supported_providers:
-            logger.debug("No providers are enabled based on current settings.")
-
-        # Filter by provider if specified
-        if provider_filter:
-            if provider_filter in supported_providers:
-                supported_providers = [provider_filter]
-            else:
-                logger.warning(f"Requested provider {provider_filter} is not supported or enabled.")
-                supported_providers = []
-
-        # Get capability reports from each engine
-        for provider in supported_providers:
-            try:
-                engine = ModelFactory.create(provider=provider)
-                # capability report remains synchronous
-                capabilities.append(engine.get_capability_report())
-            except Exception as e:
-                logger.warning(f"Failed to get capabilities for provider {provider}: {e}")
-                continue
+        if provider:
+            report = ModelFactory.get_capabilities_for_provider(provider)
+            capabilities = [report] if report else []
+        else:
+            # Get capabilities for all enabled providers
+            enabled_providers = [p for p, enabled in ModelFactory.get_enabled_providers().items() if enabled]
+            reports = [ModelFactory.get_capabilities_for_provider(p) for p in enabled_providers]
+            capabilities = [r for r in reports if r is not None]
 
         return CapabilitiesResponse(capabilities=capabilities)
 
     except Exception as e:
         logger.error(f"Error getting capabilities: {e}")
-        error_response = CapabilitiesResponse(ok=False, capabilities=[])
-        return error_response
+        return CapabilitiesResponse(ok=False, capabilities=[])
 
 
 def main() -> None:

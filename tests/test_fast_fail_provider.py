@@ -14,9 +14,9 @@ def test_provider_validation_helper(monkeypatch):
         monkeypatch.delenv(var, raising=False)
 
     # Test that validation properly detects missing providers
-    assert not ModelFactory.validate_provider_enabled(Provider.OPENAI)
-    assert not ModelFactory.validate_provider_enabled(Provider.AZURE_OPENAI)
-    assert not ModelFactory.validate_provider_enabled(Provider.GEMINI)
+    assert not ModelFactory.is_provider_enabled(Provider.OPENAI)
+    assert not ModelFactory.is_provider_enabled(Provider.AZURE_OPENAI)
+    assert not ModelFactory.is_provider_enabled(Provider.GEMINI)
 
 
 def test_generate_fast_fail_provider_unavailable(monkeypatch):

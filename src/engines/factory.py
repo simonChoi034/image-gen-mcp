@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from ..schema import Error, ImageResponse
-from ..settings import get_settings
+from loguru import logger
+
+from ..schema import CapabilityReport, Error, ImageResponse
+from ..settings import get_settings, Settings
 from ..shard import constants as C
 from ..shard.enums import Model, Provider
-from ..utils.error_helpers import augment_with_capability_tip
+from ..utils.error_helpers import augment_with_capability_tip, EngineResolutionError, ProviderUnavailableError
 from .ar.gemini import GeminiAR
 from .ar.openai import OpenAIAR
 from .ar.openrouter import OpenRouterAR
@@ -17,7 +19,7 @@ from .diffusion.vertex_imagen import VertexImagen
 # ============================================================================
 
 # Direct model-to-engine mappings
-MODEL_ENGINE_MAP = {
+MODEL_ENGINE_MAP: dict[Model, type[ImageEngine]] = {
     # AR Models
     Model.GPT_IMAGE_1: OpenAIAR,
     Model.GEMINI_IMAGE_PREVIEW: GeminiAR,
@@ -29,16 +31,16 @@ MODEL_ENGINE_MAP = {
 }
 
 # Provider-to-default-engine mappings (when model is not specified)
-PROVIDER_DEFAULT_ENGINE_MAP = {
-    Provider.OPENAI: OpenAIAR,  # Default to AR (GPT-Image-1) for OpenAI
-    Provider.AZURE_OPENAI: OpenAIAR,  # Default to AR (GPT-Image-1) for Azure
+PROVIDER_DEFAULT_ENGINE_MAP: dict[Provider, type[ImageEngine]] = {
+    Provider.OPENAI: OpenAIAR,
+    Provider.AZURE_OPENAI: OpenAIAR,
     Provider.GEMINI: GeminiAR,
-    Provider.VERTEX: VertexImagen,  # Default to Imagen for Vertex
-    Provider.OPENROUTER: OpenRouterAR,  # OpenRouter Gemini image preview
+    Provider.VERTEX: VertexImagen,
+    Provider.OPENROUTER: OpenRouterAR,
 }
 
 # Provider-to-supported-models mappings
-PROVIDER_MODELS_MAP = {
+PROVIDER_MODELS_MAP: dict[Provider, list[Model]] = {
     Provider.OPENAI: [Model.GPT_IMAGE_1, Model.DALL_E_3],
     Provider.AZURE_OPENAI: [Model.GPT_IMAGE_1, Model.DALL_E_3],
     Provider.VERTEX: [Model.IMAGEN_4_STANDARD, Model.IMAGEN_3_GENERATE, Model.GEMINI_IMAGE_PREVIEW],
@@ -48,270 +50,182 @@ PROVIDER_MODELS_MAP = {
 
 
 # ============================================================================
-# MODEL FACTORY CLASS
+# INTERNAL RESOLUTION & VALIDATION LOGIC
+# ============================================================================
+
+
+def _get_supported_providers_for_model(model: Model) -> list[Provider]:
+    """Get list of providers that support a model."""
+    return [provider for provider, models in PROVIDER_MODELS_MAP.items() if model in models]
+
+
+def _create_resolution_error_message(provider: Provider | None, model: Model | None) -> str:
+    """Create a helpful error message for resolution failures."""
+    parts = []
+    if provider:
+        parts.append(f"provider={provider.value}")
+    if model:
+        parts.append(f"model={model.value}")
+    hint = " " + ", ".join(parts) if parts else " for the given inputs"
+    message = f"No engine available{hint}"
+
+    if model and not provider:
+        supported_providers = _get_supported_providers_for_model(model)
+        if supported_providers:
+            names = [p.value for p in supported_providers]
+            message += f". Model {model.value} is supported by: {', '.join(names)}"
+    elif provider and not model:
+        supported_models = PROVIDER_MODELS_MAP.get(provider, [])
+        if supported_models:
+            names = [m.value for m in supported_models]
+            message += f". Provider {provider.value} supports: {', '.join(names)}"
+    elif model and provider:
+        supported_providers = _get_supported_providers_for_model(model)
+        names = [p.value for p in supported_providers]
+        message += f". Model {model.value} is not supported by {provider.value}. Supported providers: {', '.join(names)}"
+
+    return message
+
+
+def _resolve_engine_spec(provider: Provider | None, model: Model | None) -> tuple[type[ImageEngine], Provider]:
+    """
+    Determines the engine class and the effective provider to use.
+    Raises `EngineResolutionError` if no suitable engine can be found.
+    """
+    if model:
+        engine_class = MODEL_ENGINE_MAP.get(model)
+        if not engine_class:
+            raise EngineResolutionError(_create_resolution_error_message(provider, model))
+
+        supported_providers = _get_supported_providers_for_model(model)
+        if provider:
+            if provider not in supported_providers:
+                raise EngineResolutionError(_create_resolution_error_message(provider, model))
+            effective_provider = provider
+        else:
+            effective_provider = supported_providers[0]
+        return engine_class, effective_provider
+
+    if provider:
+        engine_class = PROVIDER_DEFAULT_ENGINE_MAP.get(provider)
+        if not engine_class:
+            raise EngineResolutionError(_create_resolution_error_message(provider, None))
+        return engine_class, provider
+
+    raise EngineResolutionError("Either 'provider' or 'model' must be specified to resolve an engine.")
+
+
+def _get_enabled_providers(settings: Settings = get_settings()) -> dict[Provider, bool]:
+    """Get mapping of providers to their enabled status based on credentials."""
+    return {
+        Provider.OPENAI: settings.use_openai,
+        Provider.AZURE_OPENAI: settings.use_azure_openai,
+        Provider.GEMINI: settings.use_gemini,
+        Provider.OPENROUTER: settings.use_openrouter,
+        Provider.VERTEX: bool(settings.vertex_project and settings.vertex_location),
+    }
+
+
+# ============================================================================
+# PUBLIC API - ModelFactory
 # ============================================================================
 
 
 class ModelFactory:
-    """Resolve and construct the appropriate engine for a request.
-
-    This factory provides a clean, maintainable interface for creating image engines
-    based on model and provider specifications. Key features:
-
-    - Direct model-to-engine mapping for unambiguous routing
-    - Provider-based fallbacks when model is unspecified
-    - Comprehensive validation with specific error types
-    - Support for all implemented engines (AR and Diffusion)
-    - Clear error messages for debugging unsupported combinations
-
-    Architecture:
-    - Uses enum-based mapping constants for maintainability
-    - Modular validation and error handling methods
-    - Consistent error response format
-    - Comprehensive provider/model compatibility checking
+    """
+    Provides a clean, maintainable interface for creating image engines
+    based on model and provider specifications.
     """
 
-    # ========================================================================
-    # PROVIDER VALIDATION
-    # ========================================================================
-
-    @staticmethod
-    def _get_enabled_providers(settings=None) -> dict[Provider, bool]:
-        """Get mapping of providers to their enabled status based on credentials."""
-        if settings is None:
-            settings = get_settings()
-
-        return {
-            Provider.OPENAI: settings.use_openai,
-            Provider.AZURE_OPENAI: settings.use_azure_openai,
-            Provider.GEMINI: settings.use_gemini,
-            Provider.OPENROUTER: settings.use_openrouter,
-            Provider.VERTEX: bool(settings.vertex_project and settings.vertex_location),
-        }
-
     @classmethod
-    def _validate_provider_enabled(cls, provider: Provider, settings=None) -> bool:
-        """Check if a provider is enabled (has required credentials)."""
-        enabled_providers = cls._get_enabled_providers(settings)
-        return enabled_providers.get(provider, False)
-
-    @staticmethod
-    def _create_provider_unavailable_error(provider: Provider, model: Model) -> ValueError:
-        """Create error for when provider is not enabled."""
-        message = augment_with_capability_tip(f"Requested provider '{provider.value}' is not enabled (missing credentials).")
-        return ValueError(message)
-
-    @staticmethod
-    def create_provider_unavailable_response(provider: Provider, model: Model) -> ImageResponse:
-        """Create a standardized error response for unavailable providers."""
-        err = Error(
-            code=C.ERROR_CODE_PROVIDER_UNAVAILABLE,
-            message=augment_with_capability_tip(f"Requested provider '{provider.value}' is not enabled (missing credentials)."),
-        )
-        return ImageResponse(ok=False, content=[], model=model, error=err)
-
-    # ========================================================================
-    # VALIDATION AND MAPPING
-    # ========================================================================
-
-    # --------------------------- validation helpers ----------------------- #
-    @staticmethod
-    def _validate_model_provider_compatibility(model: Model, provider: Provider) -> bool:
-        """Check if a model is compatible with the given provider."""
-        supported_models = PROVIDER_MODELS_MAP.get(provider, [])
-        return model in supported_models
-
-    @staticmethod
-    def _is_model_supported_by_provider(model: Model, provider: Provider) -> bool:
-        """Optimized check if a model is compatible with the given provider."""
-        return model in PROVIDER_MODELS_MAP.get(provider, [])
-
-    @staticmethod
-    def _get_supported_models_for_provider(provider: Provider) -> list[Model]:
-        """Get list of models supported by a provider."""
-        return PROVIDER_MODELS_MAP.get(provider, [])
-
-    @staticmethod
-    def _get_supported_providers_for_model(model: Model) -> list[Provider]:
-        """Get list of providers that support a model."""
-        providers = []
-        for provider, models in PROVIDER_MODELS_MAP.items():
-            if model in models:
-                providers.append(provider)
-        return providers
-
-    # --------------------------- engine resolution ------------------------- #
-    @staticmethod
-    def _resolve_engine_from_model(model: Model | None) -> type[ImageEngine] | None:
-        """Return engine class for a specific model when known."""
-        if model is None:
-            return None
-        return MODEL_ENGINE_MAP.get(model)
-
-    @staticmethod
-    def _resolve_engine_from_provider(provider: Provider | None) -> type[ImageEngine] | None:
-        """Return a default engine class given only a provider hint."""
-        if provider is None:
-            return None
-        return PROVIDER_DEFAULT_ENGINE_MAP.get(provider)
-
-    # --------------------------- error handling --------------------------- #
-    @staticmethod
-    def _create_no_engine_error(provider: Provider | None, model: Model | None) -> ValueError:
-        """Create error for when no suitable engine can be found."""
-        parts = []
-        if provider:
-            parts.append(f"provider={provider.value}")
-        if model:
-            parts.append(f"model={model.value}")
-
-        hint = " " + ", ".join(parts) if parts else " given inputs"
-        message = f"No engine available for{hint}"
-
-        # Add helpful suggestions
-        if model and not provider:
-            supported_providers = ModelFactory._get_supported_providers_for_model(model)
-            if supported_providers:
-                provider_names = [p.value for p in supported_providers]
-                message += f". Model {model.value} is supported by: {', '.join(provider_names)}"
-        elif provider and not model:
-            supported_models = ModelFactory._get_supported_models_for_provider(provider)
-            if supported_models:
-                model_names = [m.value for m in supported_models]
-                message += f". Provider {provider.value} supports: {', '.join(model_names)}"
-        elif model and provider:
-            if not ModelFactory._validate_model_provider_compatibility(model, provider):
-                supported_providers = ModelFactory._get_supported_providers_for_model(model)
-                provider_names = [p.value for p in supported_providers]
-                message += f". Model {model.value} is not supported by {provider.value}. Supported providers: {', '.join(provider_names)}"
-
-        return ValueError(message)
-
-    # ========================================================================
-    # PUBLIC API
-    # ========================================================================
-
-    # ------------------------------ factory method ------------------------ #
-    @classmethod
-    def create(
-        cls,
-        provider: Provider | None = None,
-        model: Model | None = None,
-    ) -> ImageEngine:
-        """Create an engine instance for the given model/provider.
-
-        Resolution priority:
-        1. Validate provider credentials (fail fast if not enabled)
-        2. Direct model mapping (if model is specified and supported)
-        3. Provider default mapping (if provider is specified)
-        4. Raises ValueError with helpful suggestions
-
-        Args:
-            provider: Optional provider hint for engine selection
-            model: Optional specific model for engine selection
-
-        Returns:
-            ImageEngine: Configured engine instance
+    def create(cls, provider: Provider | None = None, model: Model | None = None) -> ImageEngine:
+        """
+        Create an engine instance for the given model/provider.
 
         Raises:
-            ValueError: When no suitable engine exists for the inputs,
-                       or when provider is not enabled (missing credentials)
+            EngineResolutionError: If no suitable engine can be found.
+            ProviderUnavailableError: If the required provider is not enabled.
         """
-        # Determine the provider to validate
-        provider_to_validate = provider
-        if provider_to_validate is None and model is not None:
-            # If only model is specified, get the first supported provider
-            supported_providers = cls._get_supported_providers_for_model(model)
-            if supported_providers:
-                provider_to_validate = supported_providers[0]
+        engine_class, effective_provider = _resolve_engine_spec(provider, model)
 
-        # Early validation: fail fast if provider not enabled
-        if provider_to_validate and not cls._validate_provider_enabled(provider_to_validate):
-            raise cls._create_provider_unavailable_error(provider_to_validate, model or Model.GPT_IMAGE_1)
+        if not cls.is_provider_enabled(effective_provider):
+            raise ProviderUnavailableError(effective_provider)
 
-        # Try direct model mapping first (highest priority)
-        if model is not None:
-            engine_class = MODEL_ENGINE_MAP.get(model)
-            if engine_class is not None:
-                # If provider is also specified, validate compatibility
-                if provider is not None and not cls._is_model_supported_by_provider(model, provider):
-                    raise cls._create_no_engine_error(provider, model)
-                # Use the specified provider, or determine from model
-                engine_provider = provider or cls._get_supported_providers_for_model(model)[0]
-                return engine_class(provider=engine_provider)
+        return engine_class(provider=effective_provider)
 
-        # Fallback to provider default
-        if provider is not None:
-            engine_class = PROVIDER_DEFAULT_ENGINE_MAP.get(provider)
-            if engine_class is not None:
-                return engine_class(provider=provider)
+    @classmethod
+    def validate_and_create(cls, provider: Provider | None = None, model: Model | None = None) -> tuple[ImageEngine | None, ImageResponse | None]:
+        """
+        Validate and create an engine, returning either the engine or a formatted error response.
+        """
+        # Define a default model for error responses when the model is not specified.
+        error_model = model or Model.GPT_IMAGE_1
 
-        # No resolution possible
-        raise cls._create_no_engine_error(provider, model)
+        try:
+            engine = cls.create(provider=provider, model=model)
+            return engine, None
+        except ProviderUnavailableError as e:
+            err = Error(
+                code=C.ERROR_CODE_PROVIDER_UNAVAILABLE,
+                message=augment_with_capability_tip(str(e)),
+            )
+            return None, ImageResponse(ok=False, content=[], model=error_model, error=err)
+        except EngineResolutionError as e:
+            err = Error(code="validation_error", message=augment_with_capability_tip(str(e)))
+            return None, ImageResponse(ok=False, content=[], model=error_model, error=err)
 
-    # --------------------------- utility methods --------------------------- #
     @classmethod
     def get_supported_models(cls, provider: Provider | None = None) -> list[Model]:
         """Get all supported models, optionally filtered by provider."""
-        if provider is not None:
-            return cls._get_supported_models_for_provider(provider)
-
-        # Return all supported models
+        if provider:
+            return PROVIDER_MODELS_MAP.get(provider, [])
         return list(MODEL_ENGINE_MAP.keys())
 
     @classmethod
     def get_supported_providers(cls, model: Model | None = None) -> list[Provider]:
         """Get all supported providers, optionally filtered by model."""
-        if model is not None:
-            return cls._get_supported_providers_for_model(model)
-
-        # Return all providers with default engines
+        if model:
+            return _get_supported_providers_for_model(model)
         return list(PROVIDER_DEFAULT_ENGINE_MAP.keys())
 
     @classmethod
-    def validate_combination(cls, provider: Provider, model: Model) -> bool:
-        """Validate if a provider/model combination is supported."""
-        return cls._validate_model_provider_compatibility(model, provider)
+    def get_default_engine_class(cls, provider: Provider) -> type[ImageEngine] | None:
+        """Get the engine class for a given provider."""
+        return PROVIDER_DEFAULT_ENGINE_MAP.get(provider)
 
     @classmethod
-    def get_enabled_providers(cls, settings=None) -> dict[Provider, bool]:
-        """Get mapping of providers to their enabled status based on credentials."""
-        return cls._get_enabled_providers(settings)
+    def get_capabilities_for_provider(cls, provider: Provider) -> CapabilityReport | None:
+        """Get capabilities for a single enabled provider."""
+        if not cls.get_enabled_providers().get(provider):
+            logger.warning(f"Provider {provider.value} is not enabled, skipping capabilities.")
+            return None
 
-    @classmethod
-    def validate_provider_enabled(cls, provider: Provider, settings=None) -> bool:
-        """Check if a provider is enabled (has required credentials)."""
-        return cls._validate_provider_enabled(provider, settings)
+        engine_class = cls.get_default_engine_class(provider)
+        if not engine_class:
+            logger.warning(f"No engine for provider {provider.value}, skipping capabilities.")
+            return None
 
-    @classmethod
-    def validate_and_create(
-        cls,
-        provider: Provider | None = None,
-        model: Model | None = None,
-    ) -> tuple[ImageEngine | None, ImageResponse | None]:
-        """Validate and create engine, returning either engine or error response.
-
-        Returns:
-            Tuple of (engine, error_response) where exactly one will be None.
-        """
         try:
-            engine = cls.create(provider=provider, model=model)
-            return engine, None
-        except ValueError as e:
-            # Check if this is a provider unavailable error
-            error_msg = str(e)
-            if "not enabled" in error_msg and "missing credentials" in error_msg:
-                # Extract provider from error or use the passed provider
-                error_provider = provider or (cls._get_supported_providers_for_model(model)[0] if model else Provider.OPENAI)
-                error_model = model or Model.GPT_IMAGE_1
-                error_response = cls.create_provider_unavailable_response(error_provider, error_model)
-                return None, error_response
-            else:
-                # Other validation errors - wrap in generic response
-                error_model = model or Model.GPT_IMAGE_1
-                err = Error(code="validation_error", message=augment_with_capability_tip(error_msg))
-                error_response = ImageResponse(ok=False, content=[], model=error_model, error=err)
-                return None, error_response
+            engine = engine_class(provider=provider)
+            return engine.get_capability_report()
+        except Exception as e:
+            logger.warning(f"Failed to get capabilities for {provider.value}: {e}")
+            return None
+
+    @classmethod
+    def is_combination_supported(cls, provider: Provider, model: Model) -> bool:
+        """Validate if a provider/model combination is supported."""
+        return model in PROVIDER_MODELS_MAP.get(provider, [])
+
+    @classmethod
+    def get_enabled_providers(cls) -> dict[Provider, bool]:
+        """Get mapping of providers to their enabled status."""
+        return _get_enabled_providers()
+
+    @classmethod
+    def is_provider_enabled(cls, provider: Provider) -> bool:
+        """Check if a provider is enabled (has required credentials)."""
+        return _get_enabled_providers().get(provider, False)
 
 
 __all__ = ["ModelFactory"]
