@@ -273,7 +273,7 @@ def save_images_from_response(resp: object, directory: str | None) -> None:
     # logger is module-level; local reference kept for tests
     # (we avoid importing ImageResponse here to prevent circular imports)
 
-    for part in getattr(resp, "content", []) or []:
+    for part in getattr(resp, "content", []):
         if getattr(part, "type", None) != "resource":
             continue
 
