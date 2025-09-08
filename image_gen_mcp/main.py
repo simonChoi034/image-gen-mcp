@@ -106,8 +106,9 @@ async def mcp_generate_image(
 
         resp = await engine.generate(req)
 
-        # Save images to disk (runs in a thread to avoid blocking the event loop)
-        await asyncio.to_thread(save_images_from_response, resp, directory)
+        # Save images to disk only if response was successful
+        if resp.ok:
+            await asyncio.to_thread(save_images_from_response, resp, directory)
 
         # Convert to FastMCP ImageContent while preserving structured payload
         contents = resp.response_to_image_contents()
