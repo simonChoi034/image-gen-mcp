@@ -284,8 +284,6 @@ jobs:
           cd /tmp && "$REPO_DIR/test-release-env/bin/python" /tmp/test_installed.py || (echo 'ERROR: installed package import failed' && exit 1)
           # cleanup
           rm -f /tmp/test_installed.py || true
-          # cleanup
-          rm -f /tmp/test_installed.py || true
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

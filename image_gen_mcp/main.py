@@ -251,8 +251,8 @@ def main() -> None:
     # is legacy but still supported for backward compatibility.
     parser.add_argument(
         "--transport",
-        choices=["stdio", "sse", "http"],
-        help="Transport to use (stdio, sse, http)",
+        choices=["stdio", "http", "sse", "streamable-http"],
+        help="Transport to use (stdio, sse, http, streamable-http). Default: stdio",
     )
     parser.add_argument("--host", help="Host to bind to")
     parser.add_argument("--port", type=int, help="Port to listen on")
@@ -271,10 +271,8 @@ def main() -> None:
     if transport in http_transports:
         app.run(transport=transport, host=host, port=port)
     else:
-        # For stdio (the default) and other non-HTTP transports, don't pass
-        # host/port to avoid TypeError: run_stdio_async() got an unexpected
-        # keyword argument 'host'.
-        app.run(transport=transport)
+        # For stdio (the default): do not pass host/port
+        app.run()
 
 
 if __name__ == "__main__":
