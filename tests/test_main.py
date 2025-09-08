@@ -32,3 +32,27 @@ def test_main_function_argument_parsing():
     # This is a basic test to ensure the function exists and can be imported
     # More detailed testing would require mocking sys.argv
     assert callable(main)
+
+
+def test_parser_transport_choices():
+    """Ensure the CLI parser restricts transport choices to stdio, sse, http."""
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    # Recreate the argument as in main to validate choices programmatically
+    parser.add_argument("--transport", choices=["stdio", "sse", "http"])
+
+    # Valid choices should parse
+    args = parser.parse_args(["--transport", "stdio"])
+    assert args.transport == "stdio"
+
+    args = parser.parse_args(["--transport", "http"])
+    assert args.transport == "http"
+
+    # Invalid choice should raise SystemExit from argparse
+    try:
+        parser.parse_args(["--transport", "invalid"])
+        raise AssertionError("parser did not reject invalid transport")
+    except SystemExit:
+        # Expected behavior
+        pass

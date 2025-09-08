@@ -134,6 +134,28 @@ python -m image_gen_mcp.main
 fastmcp run image_gen_mcp/main.py:app
 ```
 
+### Local VS Code `mcp.json` for testing
+
+If you use a VS Code extension or local tooling that reads `.vscode/mcp.json`, here's a safe example to run the local server (do NOT commit secrets):
+
+```json
+{
+  "servers": {
+    "image-gen-mcp": {
+      "command": "python",
+      "args": ["-m", "image_gen_mcp.main"],
+      "env": {
+        "# NOTE": "Replace with your local keys for testing; do not commit.",
+        "OPENROUTER_API_KEY": "__REPLACE_WITH_YOUR_KEY__"
+      }
+    }
+  },
+  "inputs": []
+}
+```
+
+Use this to run the server from your workspace instead of installing the package from PyPI. For CI or shared repos, store secrets in the environment or a secret manager and avoid checking them into git.
+
 **Dev tasks**
 
 ```bash

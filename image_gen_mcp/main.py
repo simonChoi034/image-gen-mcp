@@ -247,7 +247,13 @@ async def mcp_get_model_capabilities(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Image Gen MCP Server")
-    parser.add_argument("--transport", help="Transport to use (stdio, sse, http)")
+    # Only accept transports supported by FastMCP for server runs. Note: SSE
+    # is legacy but still supported for backward compatibility.
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse", "http"],
+        help="Transport to use (stdio, sse, http)",
+    )
     parser.add_argument("--host", help="Host to bind to")
     parser.add_argument("--port", type=int, help="Port to listen on")
     args = parser.parse_args()
@@ -258,11 +264,17 @@ def main() -> None:
     port = args.port
 
     logger.info(f"Starting MCP image server on {host}:{port} with {transport} transport")
-    app.run(
-        transport=transport,
-        host=host,
-        port=port,
-    )
+
+    # FastMCP's stdio transport does not accept `host`/`port` kwargs. Only pass
+    # `host`/`port` when using an HTTP-like transport (http, sse, streamable-http).
+    http_transports = {"http", "sse", "streamable-http"}
+    if transport in http_transports:
+        app.run(transport=transport, host=host, port=port)
+    else:
+        # For stdio (the default) and other non-HTTP transports, don't pass
+        # host/port to avoid TypeError: run_stdio_async() got an unexpected
+        # keyword argument 'host'.
+        app.run(transport=transport)
 
 
 if __name__ == "__main__":
