@@ -25,8 +25,6 @@ class Settings(BaseSettings):
 
     openrouter_api_key: str | None = Field(default=None, description="API key for OpenRouter")
 
-    use_embedded_resources: bool = Field(default=False, description="If true, return images as embedded resources with blob data instead of resource URIs")
-
     @property
     def use_openai(self) -> bool:
         """Determine if OpenAI should be used based on available credentials."""

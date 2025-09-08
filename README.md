@@ -230,7 +230,6 @@ Set only what you use. At least one provider must be configured.
 | `VERTEX_PROJECT` | Vertex AI | GCP project id. Required if using Vertex. |
 | `VERTEX_LOCATION` | Vertex AI | GCP region (e.g., `us-central1`). |
 | `VERTEX_CREDENTIALS_PATH` | Vertex AI | Optional path to GCP credentials JSON; ADC also supported. |
-| `USE_EMBEDDED_RESOURCES` | All | Optional; set to `true` for embedded resources, `false` (default) for resource URIs. |
 
 Tips
 
