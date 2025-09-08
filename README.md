@@ -8,6 +8,9 @@ Provider-agnostic MCP server for image generation and editing, built on FastMCP 
 - Models: curated set mapped via a central factory for safe routing
 - Output: ImageContent blocks (FastMCP-native) plus minimal structured JSON (no blobs)
 
+> [!IMPORTANT]
+> This `README.md` file is the canonical reference for the server's API, capabilities, and usage. Other design documents in the `/docs` directory may contain outdated information from earlier design phases. Please rely on this document as the single source of truth.
+
 
 Quick Start
 -----------
@@ -33,32 +36,33 @@ What’s Included
 Providers & Models
 ------------------
 
-The server exposes a small, curated set of normalized providers and models. Routing is handled by `ModelFactory` using direct model→engine mappings and provider defaults.
+The server exposes a small, curated set of normalized providers and models. Routing is handled by `ModelFactory` using direct model→engine mappings.
 
 Model Matrix
 
-| Model | Family | Providers | Generate | Edit | Mask | Output formats | Size support |
-|---|---|---|---:|---:|---:|---|---|
-| `gpt-image-1` | AR | `openai`, `azure` | Yes | Yes | Yes (OpenAI/Azure) | OpenAI: base64+url; Azure: base64 | Native sizes: 1024x1024, 1024x1536, 1536x1024 |
-| `dall-e-3` | Diffusion | `openai`, `azure` | Yes | No | — | OpenAI: base64+url; Azure: base64 | Native sizes: 1024x1024, 1024x1792, 1792x1024 |
-| `gemini-2.5-flash-image-preview` | AR | `gemini`, `vertex` | Yes | Yes (maskless) | No | base64 | Prompt‑driven sizing |
-| `imagen-4.0-generate-001` | Diffusion | `vertex` | Yes | No | — | base64 | Prompt‑driven sizing |
-| `imagen-3.0-generate-002` | Diffusion | `vertex` | Yes | No | — | base64 | Prompt‑driven sizing |
-| `google/gemini-2.5-flash-image-preview` | AR | `openrouter` | Yes | No | — | base64 | Prompt‑driven sizing |
+| Model | Family | Providers | Generate | Edit | Mask |
+|---|---|---|---:|---:|---:|
+| `gpt-image-1` | AR | `openai`, `azure` | Yes | Yes | Yes (OpenAI/Azure) |
+| `dall-e-3` | Diffusion | `openai`, `azure` | Yes | No | — |
+| `gemini-2.5-flash-image-preview` | AR | `gemini`, `vertex` | Yes | Yes (maskless) | No |
+| `imagen-4.0-generate-001` | Diffusion | `vertex` | Yes | No (planned) | — |
+| `imagen-3.0-generate-002` | Diffusion | `vertex` | Yes | No (planned) | — |
+| `google/gemini-2.5-flash-image-preview` | AR | `openrouter` | Yes | Yes (maskless) | No |
 
-Provider Defaults (when `model` is omitted)
+Provider Model Support
 
-| Provider | Default engine | Supported models |
-|---|---|---|
-| `openai` | AR (GPT‑Image‑1) | `gpt-image-1`, `dall-e-3` |
-| `azure` | AR (GPT‑Image‑1) | `gpt-image-1`, `dall-e-3` |
-| `gemini` | AR (Gemini image preview) | `gemini-2.5-flash-image-preview` |
-| `vertex` | Diffusion (Imagen) | `imagen-4.0-generate-001`, `imagen-3.0-generate-002`, `gemini-2.5-flash-image-preview` |
-| `openrouter` | AR (Gemini via OpenRouter) | `google/gemini-2.5-flash-image-preview` |
+| Provider | Supported Models |
+|---|---|
+| `openai` | `gpt-image-1`, `dall-e-3` |
+| `azure` | `gpt-image-1`, `dall-e-3` |
+| `gemini` | `gemini-2.5-flash-image-preview` |
+| `vertex` | `imagen-4.0-generate-001`, `imagen-3.0-generate-002`, `gemini-2.5-flash-image-preview` |
+| `openrouter` | `google/gemini-2.5-flash-image-preview` |
 
 Notes
 
-- DALL·E 3 and Imagen do not support edits in this server.
+- DALL·E 3 does not support edits in this server (use the `gpt-image-1` model for edits via OpenAI/Azure).
+- Imagen models do not yet support image editing; this feature will be implemented later.
 - Azure OpenAI typically returns base64 only; OpenAI may return base64 or URL.
 - OpenRouter adapter extracts images from varied response shapes; returns base64.
 - `n` is clamped per provider (e.g., DALL·E 3 uses `n=1`).
@@ -95,7 +99,7 @@ Examples (FastMCP / programmatic clients)
 }
 ```
 
-- Optional: `provider`, `model`, `n`, `size`, `orientation`, `quality`, `background`, `negative_prompt`, `extras`.
+- Optional: `n`, `size`, `orientation`, `quality`, `background`, `negative_prompt`, `extras`.
 - Behavior: Unsupported knobs are dropped or normalized by the engine adapter; `n` is clamped per provider.
 
 `edit_image`
@@ -114,7 +118,7 @@ Examples (FastMCP / programmatic clients)
 }
 ```
 
-- Optional: `mask`, `provider`, `model`, `n`, `size`, `orientation`, `quality`, `background`, `negative_prompt`, `extras`.
+- Optional: `mask`, `n`, `size`, `orientation`, `quality`, `background`, `negative_prompt`, `extras`.
 - Note: Edited images are returned as ImageContent blocks and adapter metadata; many providers return base64-encoded image blobs internally.
 
 

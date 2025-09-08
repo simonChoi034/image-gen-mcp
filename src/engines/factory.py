@@ -92,27 +92,20 @@ def _resolve_engine_spec(provider: Provider | None, model: Model | None) -> tupl
     Determines the engine class and the effective provider to use.
     Raises `EngineResolutionError` if no suitable engine can be found.
     """
-    if model:
-        engine_class = MODEL_ENGINE_MAP.get(model)
-        if not engine_class:
-            raise EngineResolutionError(_create_resolution_error_message(provider, model))
+    # Enforce that both provider and model must be specified.
+    if not provider or not model:
+        raise EngineResolutionError("Both 'provider' and 'model' must be specified to resolve an engine.")
 
-        supported_providers = _get_supported_providers_for_model(model)
-        if provider:
-            if provider not in supported_providers:
-                raise EngineResolutionError(_create_resolution_error_message(provider, model))
-            effective_provider = provider
-        else:
-            effective_provider = supported_providers[0]
-        return engine_class, effective_provider
+    engine_class = MODEL_ENGINE_MAP.get(model)
+    if not engine_class:
+        raise EngineResolutionError(_create_resolution_error_message(provider, model))
 
-    if provider:
-        engine_class = PROVIDER_DEFAULT_ENGINE_MAP.get(provider)
-        if not engine_class:
-            raise EngineResolutionError(_create_resolution_error_message(provider, None))
-        return engine_class, provider
+    supported_providers = _get_supported_providers_for_model(model)
+    if provider not in supported_providers:
+        raise EngineResolutionError(_create_resolution_error_message(provider, model))
 
-    raise EngineResolutionError("Either 'provider' or 'model' must be specified to resolve an engine.")
+    # If we reach here, both are valid and compatible.
+    return engine_class, provider
 
 
 def _get_enabled_providers(settings: Settings = get_settings()) -> dict[Provider, bool]:
@@ -154,13 +147,10 @@ class ModelFactory:
         return engine_class(provider=effective_provider)
 
     @classmethod
-    def validate_and_create(cls, provider: Provider | None = None, model: Model | None = None) -> tuple[ImageEngine | None, ImageResponse | None]:
+    def validate_and_create(cls, provider: Provider, model: Model) -> tuple[ImageEngine | None, ImageResponse | None]:
         """
         Validate and create an engine, returning either the engine or a formatted error response.
         """
-        # Define a default model for error responses when the model is not specified.
-        error_model = model or Model.GPT_IMAGE_1
-
         try:
             engine = cls.create(provider=provider, model=model)
             return engine, None
@@ -169,10 +159,10 @@ class ModelFactory:
                 code=C.ERROR_CODE_PROVIDER_UNAVAILABLE,
                 message=augment_with_capability_tip(str(e)),
             )
-            return None, ImageResponse(ok=False, content=[], model=error_model, error=err)
+            return None, ImageResponse(ok=False, content=[], model=model, error=err)
         except EngineResolutionError as e:
             err = Error(code="validation_error", message=augment_with_capability_tip(str(e)))
-            return None, ImageResponse(ok=False, content=[], model=error_model, error=err)
+            return None, ImageResponse(ok=False, content=[], model=model, error=err)
 
     @classmethod
     def get_supported_models(cls, provider: Provider | None = None) -> list[Model]:
