@@ -3,7 +3,7 @@
 > *"Fine. I'll do it myself."* — Thanos (and also me, after trying five different MCP servers that couldn't mix-and-match image models)  
 > I wanted a single, **simple** MCP server that lets agents generate **and** edit images across OpenAI, Google (Gemini/Imagen), Azure, Vertex, and OpenRouter—without yak‑shaving. So… here it is.
 
-[![PyPI version](https://img.shields.io/pypi/v/image-gen-mcp.svg)](https://pypi.org/project/image-gen-mcp/) ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+[![PyPI version](https://img.shields.io/pypi/v/image-gen-mcp.svg)](https://pypi.org/project/image-gen-mcp/) ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue) ![license](https://img.shields.io/badge/license-Apache%202.0-blue)
 
 A multi‑provider **Model Context Protocol** (MCP) server for image **generation** and **editing** with a unified, type‑safe API. It returns MCP `ImageContent` blocks plus compact structured JSON so your client can route, log, or inspect results cleanly.
 
@@ -50,7 +50,7 @@ This one prioritizes:
 - **Unified tools**: `generate_image`, `edit_image`, `get_model_capabilities`
 - **Providers**: OpenAI, Azure OpenAI, Google **Gemini**, **Vertex AI** (Imagen & Gemini), OpenRouter
 - **Output**: MCP `ImageContent` blocks + small JSON metadata
-- **Quality/size/orientation** normalization with provider‑specific mapping via `extras`
+- **Quality/size/orientation** normalization
 - **Masking** support where engines allow it
 - **Fail‑soft** errors with stable shape: `{ code, message, details? }`
 
@@ -179,7 +179,6 @@ Create one or more images from a text prompt.
 | `quality` | enum | Optional. `draft` \| `standard` \| `high`. |
 | `background` | enum | Optional. `transparent` \| `opaque` (when supported). |
 | `negative_prompt` | str | Optional. Used when provider supports it. |
-| `extras` | object | Optional. Escape hatch for provider‑specific fields (e.g. `{ "style": "vivid" }`). |
 
 ---
 
@@ -214,7 +213,6 @@ Edit an image with a prompt and optional mask.
 | `quality` | enum | Optional. `draft` \| `standard` \| `high`. |
 | `background` | enum | Optional. `transparent` \| `opaque`. |
 | `negative_prompt` | str | Optional. Negative prompt. |
-| `extras` | object | Optional. Provider‑specific fields. |
 
 ---
 
@@ -330,11 +328,8 @@ Supports multiple transports:
 
 ## 🛟 Troubleshooting & FAQ
 
-**Images don’t show up in my client.**  
-Make sure your MCP client supports `ImageContent` blocks. Check its console logs; some clients require explicit rendering hooks.
-
 **Which size does `S | M | L` map to?**  
-Sizes are normalized; exact pixel dims vary by provider. Use `extras` for a hard override (e.g. `{ "width": 1024, "height": 1536 }`).
+Sizes are normalized; exact pixel dimensions vary by provider.
 
 **Can I mask with Gemini or Imagen?**  
 Masking is not currently supported on those engines; use OpenAI/Azure for masking.
@@ -364,4 +359,4 @@ PRs welcome! Please run tests and linters locally.
 
 ## 📄 License
 
-MIT — see `LICENSE`.
+Apache-2.0 — see `LICENSE`.

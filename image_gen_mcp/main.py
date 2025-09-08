@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastmcp import Context, FastMCP
 from fastmcp.tools.tool import ToolResult
@@ -68,10 +68,6 @@ async def mcp_generate_image(
         Background | None,
         Field(description="Optional background alpha for AR engines supporting transparency."),
     ] = None,
-    extras: Annotated[
-        dict[str, Any] | None,
-        Field(description="Escape hatch for native provider parameters (e.g., {'style':'vivid'})."),
-    ] = None,
     ctx: Context | None = None,
 ) -> ToolResult:
     """Generate image(s) from a prompt.
@@ -89,7 +85,6 @@ async def mcp_generate_image(
             quality=quality,
             negative_prompt=negative_prompt,
             background=background,
-            extras=extras,
         )
 
         # Use factory's integrated validation and creation
@@ -171,10 +166,6 @@ async def mcp_edit_image(
         Background | None,
         Field(description="Optional background alpha for AR engines supporting transparency."),
     ] = None,
-    extras: Annotated[
-        dict[str, Any] | None,
-        Field(description="Escape hatch for native provider parameters (e.g., {'style':'vivid'})."),
-    ] = None,
     ctx: Context | None = None,
 ) -> ToolResult:
     """Edit an image with a prompt and optional mask."""
@@ -191,7 +182,6 @@ async def mcp_edit_image(
             quality=quality,
             negative_prompt=negative_prompt,
             background=background,
-            extras=extras,
         )
 
         # Use factory's integrated validation and creation
