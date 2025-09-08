@@ -1,0 +1,19 @@
+include README.md
+include LICENSE
+include pyproject.toml
+recursive-include image_gen_mcp *.py
+global-exclude *.pyc
+global-exclude __pycache__
+global-exclude .DS_Store
+prune .github
+prune .vscode
+prune build
+prune dist
+prune tests
+prune docs
+exclude .env*
+exclude .pre-commit-config.yaml
+exclude .python-version
+exclude uv.lock
+exclude AGENTS.md
+exclude *.png

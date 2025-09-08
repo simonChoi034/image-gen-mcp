@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from typing import Annotated, Any
 
 from fastmcp import Context, FastMCP
@@ -255,8 +256,23 @@ async def mcp_get_model_capabilities(
 
 
 def main() -> None:
-    logger.info("Starting MCP image server")
-    app.run(transport="sse", host="127.0.0.1", port=8000)
+    parser = argparse.ArgumentParser(description="Image Gen MCP Server")
+    parser.add_argument("--transport", help="Transport to use (stdio, sse, http)")
+    parser.add_argument("--host", help="Host to bind to")
+    parser.add_argument("--port", type=int, help="Port to listen on")
+    args = parser.parse_args()
+
+    # Override settings with command-line arguments if provided
+    transport = args.transport
+    host = args.host
+    port = args.port
+
+    logger.info(f"Starting MCP image server on {host}:{port} with {transport} transport")
+    app.run(
+        transport=transport,
+        host=host,
+        port=port,
+    )
 
 
 if __name__ == "__main__":

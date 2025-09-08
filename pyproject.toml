@@ -1,8 +1,37 @@
 [project]
 name = "image-gen-mcp"
-version = "0.1.0"
+dynamic = ["version"]
 description = "MCP image generation server with modular engines and routing"
 readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Simon Choi", email = "simon.choi034@gmail.com" },
+]
+maintainers = [
+    { name = "Simon Choi", email = "simon.choi034@gmail.com" },
+]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "image-generation",
+    "ai",
+    "openai",
+    "gemini",
+    "vertex-ai",
+    "dall-e",
+    "imagen",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Multimedia :: Graphics",
+]
 requires-python = ">=3.12"
 dependencies = [
   "pydantic>=2.8.0",
@@ -25,9 +54,54 @@ dev = [
   "pyright>=1.1.379"
 ]
 
+[project.scripts]
+image-gen-mcp = "image_gen_mcp.main:main"
+
+[project.urls]
+Homepage = "https://github.com/simonChoi034/image-gen-mcp"
+Repository = "https://github.com/simonChoi034/image-gen-mcp"
+Issues = "https://github.com/simonChoi034/image-gen-mcp/issues"
+Changelog = "https://github.com/simonChoi034/image-gen-mcp/releases"
+
 [build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.hatch.build.targets.wheel]
+packages = ["image_gen_mcp"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/.github",
+  "/.vscode",
+  "/build",
+  "/dist",
+  "/tests",
+  "/*.png",
+  "/docs",
+  "/.env*",
+  "/.pre-commit-config.yaml",
+  "/.python-version",
+  "/uv.lock",
+  "/AGENTS.md"
+]
+
+[tool.uv-dynamic-versioning]
+metadata = true
+fallback-version = "0.1.0"
+tag-regex = "^v(?P<version>.+)$"
+format-jinja = """
+{%- if distance == 0 -%}
+{{ serialize_pep440(base, stage, revision) }}
+{%- elif revision is not none -%}
+{{ serialize_pep440(base, stage, revision + 1, dev=distance) }}
+{%- else -%}
+{{ serialize_pep440(bump_version(base), dev=distance) }}
+{%- endif -%}
+"""
 
 [tool.isort]
 profile = "black"
@@ -167,4 +241,10 @@ disable = [
     "using-constant-test",
     "logging-fstring-interpolation",
     "unsupported-binary-operation",
+]
+
+[dependency-groups]
+dev = [
+    "pytest-cov>=6.3.0",
+    "uv-dynamic-versioning>=0.11.0",
 ]
