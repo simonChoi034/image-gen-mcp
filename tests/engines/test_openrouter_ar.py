@@ -4,8 +4,8 @@ import base64
 import os
 import tempfile
 
-from src.engines.ar.openrouter import OpenRouterAR
-from src.shard.enums import Provider
+from image_gen_mcp.engines.ar.openrouter import OpenRouterAR
+from image_gen_mcp.shard.enums import Provider
 
 
 def _make_temp_png() -> str:

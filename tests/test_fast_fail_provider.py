@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 
-from src.engines.factory import ModelFactory
-from src.main import mcp_edit_image, mcp_generate_image
-from src.shard.enums import Model, Provider
+from image_gen_mcp.engines.factory import ModelFactory
+from image_gen_mcp.main import mcp_edit_image, mcp_generate_image
+from image_gen_mcp.shard.enums import Model, Provider
 
 
 def test_provider_validation_helper(monkeypatch):

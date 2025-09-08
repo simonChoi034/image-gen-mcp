@@ -4,9 +4,9 @@ import base64
 import os
 import tempfile
 
-from src.engines.diffusion.dalle_diffusion import DalleDiffusion
-from src.engines.diffusion.vertex_imagen import VertexImagen
-from src.shard.enums import Provider
+from image_gen_mcp.engines.diffusion.dalle_diffusion import DalleDiffusion
+from image_gen_mcp.engines.diffusion.vertex_imagen import VertexImagen
+from image_gen_mcp.shard.enums import Provider
 
 
 def _temp_png_path() -> str:
