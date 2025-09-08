@@ -298,20 +298,28 @@ jobs:
     name: Publish to TestPyPI
     runs-on: ubuntu-latest
     needs: build-and-test
-    # environment mapping removed to avoid schema validation errors; keep permissions below
+    # This job requires a TestPyPI API token in the repo secret `TEST_PYPI_API_TOKEN`.
     permissions:
-      id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
+      contents: read
     steps:
       - name: Download distributions
         uses: actions/download-artifact@v4
         with:
           name: release-distributions
           path: dist/
+      - name: Ensure TestPyPI token exists
+        run: |
+          if [ -z "${{ secrets.TEST_PYPI_API_TOKEN }}" ]; then
+            echo "Error: secret TEST_PYPI_API_TOKEN is not set. Set the secret and re-run the workflow."
+            exit 1
+          fi
 
-      - name: Publish to TestPyPI
+      - name: Publish to TestPyPI (token)
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          user: __token__
+          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
 
       - name: Verify TestPyPI publication
         run: |
@@ -325,18 +333,27 @@ jobs:
     name: Publish to PyPI
     runs-on: ubuntu-latest
     needs: [build-and-test, publish-to-testpypi]
-    # environment mapping removed to avoid schema validation errors; keep permissions below
+    # This job requires a PyPI API token in the repo secret `PYPI_API_TOKEN`.
     permissions:
-      id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
+      contents: read
     steps:
       - name: Download distributions
         uses: actions/download-artifact@v4
         with:
           name: release-distributions
           path: dist/
+      - name: Ensure PyPI token exists
+        run: |
+          if [ -z "${{ secrets.PYPI_API_TOKEN }}" ]; then
+            echo "Error: secret PYPI_API_TOKEN is not set. Set the secret and re-run the workflow."
+            exit 1
+          fi
 
-      - name: Publish to PyPI
+      - name: Publish to PyPI (token)
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
 
       - name: Verify PyPI publication
         run: |
