@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastmcp import Context, FastMCP
 from fastmcp.tools.tool import ToolResult
@@ -68,10 +68,6 @@ async def mcp_generate_image(
         Background | None,
         Field(description="Optional background alpha for AR engines supporting transparency."),
     ] = None,
-    extras: Annotated[
-        dict[str, Any] | None,
-        Field(description="Escape hatch for native provider parameters (e.g., {'style':'vivid'})."),
-    ] = None,
     ctx: Context | None = None,
 ) -> ToolResult:
     """Generate image(s) from a prompt.
@@ -89,7 +85,6 @@ async def mcp_generate_image(
             quality=quality,
             negative_prompt=negative_prompt,
             background=background,
-            extras=extras,
         )
 
         # Use factory's integrated validation and creation
@@ -171,10 +166,6 @@ async def mcp_edit_image(
         Background | None,
         Field(description="Optional background alpha for AR engines supporting transparency."),
     ] = None,
-    extras: Annotated[
-        dict[str, Any] | None,
-        Field(description="Escape hatch for native provider parameters (e.g., {'style':'vivid'})."),
-    ] = None,
     ctx: Context | None = None,
 ) -> ToolResult:
     """Edit an image with a prompt and optional mask."""
@@ -191,7 +182,6 @@ async def mcp_edit_image(
             quality=quality,
             negative_prompt=negative_prompt,
             background=background,
-            extras=extras,
         )
 
         # Use factory's integrated validation and creation
@@ -257,7 +247,13 @@ async def mcp_get_model_capabilities(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Image Gen MCP Server")
-    parser.add_argument("--transport", help="Transport to use (stdio, sse, http)")
+    # Only accept transports supported by FastMCP for server runs. Note: SSE
+    # is legacy but still supported for backward compatibility.
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "http", "sse", "streamable-http"],
+        help="Transport to use (stdio, sse, http, streamable-http). Default: stdio",
+    )
     parser.add_argument("--host", help="Host to bind to")
     parser.add_argument("--port", type=int, help="Port to listen on")
     args = parser.parse_args()
@@ -268,11 +264,15 @@ def main() -> None:
     port = args.port
 
     logger.info(f"Starting MCP image server on {host}:{port} with {transport} transport")
-    app.run(
-        transport=transport,
-        host=host,
-        port=port,
-    )
+
+    # FastMCP's stdio transport does not accept `host`/`port` kwargs. Only pass
+    # `host`/`port` when using an HTTP-like transport (http, sse, streamable-http).
+    http_transports = {"http", "sse", "streamable-http"}
+    if transport in http_transports:
+        app.run(transport=transport, host=host, port=port)
+    else:
+        # For stdio (the default): do not pass host/port
+        app.run()
 
 
 if __name__ == "__main__":

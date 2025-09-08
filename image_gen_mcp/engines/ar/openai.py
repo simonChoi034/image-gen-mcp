@@ -339,12 +339,10 @@ class OpenAIAR(ImageEngine):
         quality: Quality | None,
         background: Background | None,
         negative_prompt: str | None,
-        extras: dict | None,
     ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
         """Return (native_params, normalization_log, dropped_params).
 
         - Maps unified parameters to provider native params.
-        - Applies overrides from request and extras when present.
         - Clamps n to 1..4 for GPT-Image-1.
         """
         normalization: dict[str, Any] = {}
@@ -395,7 +393,6 @@ class OpenAIAR(ImageEngine):
             quality=req.quality,
             background=req.background,
             negative_prompt=req.negative_prompt,
-            extras=req.extras,
         )
 
         try:
@@ -441,7 +438,6 @@ class OpenAIAR(ImageEngine):
             quality=req.quality,
             background=req.background,
             negative_prompt=req.negative_prompt,
-            extras=req.extras,
         )
 
         try:

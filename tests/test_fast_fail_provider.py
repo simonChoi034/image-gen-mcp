@@ -36,7 +36,6 @@ def test_generate_fast_fail_provider_unavailable(monkeypatch):
             quality=None,
             negative_prompt=None,
             background=None,
-            extras=None,
             ctx=None,
         )
 
@@ -69,7 +68,6 @@ def test_edit_fast_fail_provider_unavailable(monkeypatch):
             quality=None,
             negative_prompt=None,
             background=None,
-            extras=None,
             ctx=None,
         )
 

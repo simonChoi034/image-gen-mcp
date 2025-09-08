@@ -100,7 +100,6 @@ OpenAI GPT‑Image‑1 (AR)
 Azure OpenAI Images
 
 - Mirrors OpenAI request shapes; GPT‑Image‑1 returns base64; DALL·E 3 can return `b64_json`.
-- Extras (subject to API version): streaming partial images for DALL·E 3.
 
 Vertex Imagen (3/4)
 

@@ -110,7 +110,6 @@ class ImageGenerateRequest(BaseModel):
     quality: Quality | None = Field(default=None)
     negative_prompt: str | None = Field(default=None)
     background: Background | None = Field(default=None)
-    extras: dict[str, Any] | None = Field(default=None)
 
 
 # -------------------------- Public minimal tool output ----------------------- #
@@ -233,7 +232,6 @@ class ImageEditRequest(BaseModel):
     quality: Quality | None = Field(default=None)
     negative_prompt: str | None = Field(default=None)
     background: Background | None = Field(default=None)
-    extras: dict[str, Any] | None = Field(default=None)
 
     # Pre-process to normalize legacy inputs into images[0] without exposing them
     # in the public schema.
