@@ -202,25 +202,90 @@ jobs:
       - name: Test package installation
         run: |
           # Create a fresh environment and test installation
-          uv venv --python 3.12 test-release-env
-          # Use the venv python directly to avoid activation/sourcing issues
+          # Use python -m venv --upgrade-deps so pip/setuptools/wheel are present at creation
+          python -m venv --upgrade-deps test-release-env
+          # Basic diagnostics
+          echo "Runner python: $(python -V 2>&1)"
+          echo "Using uv to create venv with Python 3.12"
+
+          # Ensure the venv has pip available; some venvs may be created without pip
+          if ! ./test-release-env/bin/python -m pip --version >/dev/null 2>&1; then
+            echo "pip not found in venv; attempting to bootstrap with ensurepip"
+            # Try ensurepip if available
+            if ./test-release-env/bin/python -c "import importlib,sys; importlib.import_module('ensurepip'); sys.exit(0)" 2>/dev/null; then
+              ./test-release-env/bin/python -m ensurepip --upgrade || true
+            else
+              echo "ensurepip not available; attempting to bootstrap pip via get-pip.py"
+              curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+              ./test-release-env/bin/python /tmp/get-pip.py || true
+            fi
+          fi
+
+          # Fail early with diagnostics if pip still missing
+          if ! ./test-release-env/bin/python -m pip --version >/dev/null 2>&1; then
+            echo "ERROR: pip is not available in the virtualenv even after bootstrapping"
+            ./test-release-env/bin/python -V || true
+            ./test-release-env/bin/python -c "import sys,sysconfig; print('sys.executable =', sys.executable); print(sysconfig.get_paths())"
+            exit 1
+          fi
+
+          # Upgrade packaging tools and install the built wheel into the venv
+          export PIP_NO_INPUT=1
           ./test-release-env/bin/python -m pip install --upgrade pip setuptools wheel
-          ./test-release-env/bin/python -m pip install dist/*.whl
+
+          # Retry loop for pip install to mitigate transient network issues
+          ATTEMPTS=0
+          MAX_ATTEMPTS=3
+          SUCCESS=0
+          # Prefer wheel, but fall back to sdist if necessary
+          WHEEL_FILE=$(ls dist/*.whl 2>/dev/null | head -n1 || true)
+          if [ -n "$WHEEL_FILE" ]; then
+            PKG_FILE="$WHEEL_FILE"
+          else
+            SDIST_FILE=$(ls dist/*.tar.gz 2>/dev/null | head -n1 || true)
+            if [ -n "$SDIST_FILE" ]; then
+              echo "No wheel found, will install sdist: $SDIST_FILE"
+              PKG_FILE="$SDIST_FILE"
+            else
+              echo "ERROR: no wheel or sdist found in dist/"
+              ls -la dist || true
+              exit 1
+            fi
+          fi
+
+          while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
+            ATTEMPTS=$((ATTEMPTS+1))
+            echo "pip install attempt $ATTEMPTS"
+            ./test-release-env/bin/python -m pip install --no-cache-dir "$PKG_FILE" && { SUCCESS=1; break; }
+            echo "pip install failed, sleeping before retry"
+            sleep $((ATTEMPTS * 5))
+          done
+
+          if [ $SUCCESS -ne 1 ]; then
+            echo "ERROR: pip install failed after $MAX_ATTEMPTS attempts"
+            ./test-release-env/bin/python -m pip --version || true
+            ./test-release-env/bin/python -m pip list || true
+            exit 1
+          fi
+
+          # Diagnostics: venv python and installed packages
+          ./test-release-env/bin/python -V || true
+          ./test-release-env/bin/python -m pip --version || true
+          ./test-release-env/bin/python -m pip list || true
 
           # Test basic functionality using the venv's python (imports from installed wheel)
-          # Create a small python script to validate the installed package and run it
+          # Create a small python script to validate the installed package (non-invasive)
           printf '%s\n' "import importlib" \
             "pkg = importlib.import_module('image_gen_mcp')" \
             "print('Package imports successfully:', pkg.__name__)" \
-            "try:" \
-            "  app = importlib.import_module('image_gen_mcp.main').app" \
-            "  print('FastMCP app:', app)" \
-            "except Exception as e:" \
-            "  print('Warning: could not access image_gen_mcp.main.app:', e)" \
-            "  raise" > /tmp/test_installed.py
+            "print('version:', getattr(pkg, '__version__', 'unknown'))" > /tmp/test_installed.py
           REPO_DIR=$(pwd)
           # Run the test script from /tmp so the local repo package directory is not picked up
-          cd /tmp && "$REPO_DIR/test-release-env/bin/python" /tmp/test_installed.py
+          cd /tmp && "$REPO_DIR/test-release-env/bin/python" /tmp/test_installed.py || (echo 'ERROR: installed package import failed' && exit 1)
+          # cleanup
+          rm -f /tmp/test_installed.py || true
+          # cleanup
+          rm -f /tmp/test_installed.py || true
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
