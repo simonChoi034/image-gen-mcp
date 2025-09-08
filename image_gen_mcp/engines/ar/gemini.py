@@ -289,7 +289,7 @@ class GeminiAR(ImageEngine):
                 if not data:
                     continue
                 b64 = base64.b64encode(data).decode("utf-8")
-                resource_id = f"gen-{len(images)+1}"
+                resource_id = f"gen-{len(images) + 1}"
                 embedded_resource = EmbeddedResource(
                     uri=f"image://{resource_id}",
                     name=f"image-{resource_id}.png",

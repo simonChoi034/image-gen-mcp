@@ -233,7 +233,7 @@ class OpenRouterAR(ImageEngine):
         results: list[ResourceContent] = []
 
         def add_b64(b64: str, mime: str | None = None) -> None:
-            resource_id = f"gen-{len(results)+1}"
+            resource_id = f"gen-{len(results) + 1}"
             embedded_resource = EmbeddedResource(uri=f"image://{resource_id}", name=f"image-{resource_id}.png", mimeType=mime or C.DEFAULT_MIME, blob=b64, description="Generated image with embedded data")
             results.append(ResourceContent(type="resource", resource=embedded_resource))
 

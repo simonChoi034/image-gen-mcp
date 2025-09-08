@@ -236,7 +236,7 @@ class DalleDiffusion(ImageEngine):
             if want_b64:
                 b64 = getattr(item, "b64_json", None)
                 if b64:
-                    resource_id = f"gen-{len(images)+1}"
+                    resource_id = f"gen-{len(images) + 1}"
                     embedded_resource = EmbeddedResource(
                         uri=f"image://{resource_id}",
                         name=f"image-{resource_id}.png",

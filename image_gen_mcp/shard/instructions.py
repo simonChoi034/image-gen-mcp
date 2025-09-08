@@ -3,8 +3,8 @@ from __future__ import annotations
 # ----------------------- Tool descriptions for FastMCP ----------------------- #
 
 TOOL_DESCRIPTIONS: dict[str, str] = {
-    "generate_image": ("Generate one or more images from a text prompt. " "Optionally specify engine/provider and model; otherwise, the server routes to an available engine."),
-    "edit_image": ("Edit an image using a text prompt with optional mask. " "Accepts base64, data URLs, or HTTP(S) image URLs."),
+    "generate_image": ("Generate one or more images from a text prompt. Optionally specify engine/provider and model; otherwise, the server routes to an available engine."),
+    "edit_image": ("Edit an image using a text prompt with optional mask. Accepts base64, data URLs, or HTTP(S) image URLs."),
     "get_model_capabilities": ("Discover enabled engines and supported models/knobs based on current credentials."),
 }
 

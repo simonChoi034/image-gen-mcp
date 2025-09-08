@@ -11,8 +11,8 @@ try:
     import importlib.metadata
 
     __version__ = importlib.metadata.version("image-gen-mcp")
-except (importlib.metadata.PackageNotFoundError, ImportError):
-    # Fallback for development mode
+except (ImportError, Exception):
+    # Fallback for development mode or when package is not installed
     pass
 
 __all__ = ["__version__"]

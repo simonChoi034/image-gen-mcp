@@ -4,11 +4,11 @@ from functools import lru_cache
 from typing import ClassVar
 
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config: ClassVar[dict] = {"env_nested_delimiter": "__"}
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(env_nested_delimiter="__")
 
     openai_api_key: str | None = Field(default=None, description="API key for OpenAI")
 
