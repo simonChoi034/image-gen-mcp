@@ -125,16 +125,15 @@ Common fields (generate/edit)
 
 | Field | Type | Description |
 |---|---|---|
-| `provider` | enum | One of `openai`, `openrouter`, `azure`, `vertex`, `gemini`. Optional hint for routing. |
-| `model` | enum | Specific model id (see Model Matrix). Optional. |
-| `n` | int | Image count. Default 1; provider limits apply. |
-| `size` | str | Native size like `1024x1024` (legacy). Prefer `size_code`/`orientation` when available. |
-| `size_code` | enum | Unified class: `S` | `M` | `L`. |
-| `orientation` | enum | `square` | `portrait` | `landscape`. |
-| `quality` | enum | `draft` | `standard` | `high`. Maps to provider native values. |
-| `background` | enum | `transparent` or `opaque` (AR engines that support transparency). |
-| `negative_prompt` | str | Optional negative prompt if provider supports it. |
-| `extras` | object | Escape hatch for provider‑specific params (e.g., `{ "style": "vivid" }`). |
+| `provider` | enum | **Required.** One of `openai`, `openrouter`, `azure`, `vertex`, `gemini`. |
+| `model` | enum | **Required.** Specific model id (see Model Matrix). |
+| `n` | int | Optional. Image count. Default 1; provider limits apply. |
+| `size` | enum | Optional. Unified size class: `S` | `M` | `L`. |
+| `orientation` | enum | Optional. `square` | `portrait` | `landscape`. |
+| `quality` | enum | Optional. `draft` | `standard` | `high`. Maps to provider native values. |
+| `background` | enum | Optional. `transparent` or `opaque` (AR engines that support transparency). |
+| `negative_prompt` | str | Optional. Negative prompt if provider supports it. |
+| `extras` | object | Optional. Escape hatch for provider‑specific params (e.g., `{ "style": "vivid" }`). |
 
 Generate‑only
 
@@ -147,8 +146,8 @@ Edit‑only
 | Field | Type | Description |
 |---|---|---|
 | `prompt` | str | Edit instruction. |
-| `image`/`images[0]` | str | Base image (base64, data URL, or HTTP(S) URL). |
-| `mask` | str | Optional mask; semantics vary by provider. |
+| `images` | list[str] | One or more source images (base64, data URL, or HTTP(S) URL). Most models use only the first image. |
+| `mask` | str | Optional. Mask (base64, data URL, or HTTP(S) URL). |
 
 
 Examples (Python via FastMCP Client)
@@ -161,23 +160,22 @@ from fastmcp import Client
 
 async def main():
     async with Client("src/main.py") as client:
-        # 1) Capabilities
-        caps = await client.call_tool("get_model_capabilities", {"req": {}})
+        # 1) Capabilities (no parameters for all, or specify provider)
+        caps = await client.call_tool("get_model_capabilities")
+        # caps = await client.call_tool("get_model_capabilities", {"provider": "openai"})
         print("capabilities:", caps.structured_content or caps.text)
 
-        # 2) Generate (provider/model optional)
+        # 2) Generate (provider/model are now required)
         gen = await client.call_tool(
             "generate_image",
             {
-                "req": {
-                    "prompt": "a watercolor fox in a forest, soft light",
-                    # "provider": "openai",
-                    # "model": "gpt-image-1",
-                    "n": 1,
-                    "size_code": "M",
-                    "orientation": "square",
-                    "quality": "standard",
-                }
+                "prompt": "a watercolor fox in a forest, soft light",
+                "provider": "openai",
+                "model": "gpt-image-1",
+                "n": 1,
+                "size": "M",
+                "orientation": "square",
+                "quality": "standard",
             },
         )
         # Structured JSON mirror (no image data, just metadata)
@@ -185,20 +183,18 @@ async def main():
         # Traditional MCP content blocks include ImageContent for each image
         print("image blocks:", len(gen.content))
 
-        # 3) Edit (no output_format field in schema)
+        # 3) Edit (provider/model are now required)
         edit = await client.call_tool(
             "edit_image",
             {
-                "req": {
-                    "prompt": "add gentle sunbeams",
-                    "image": "https://example.com/input.png",
-                    # "mask": "data:image/png;base64,....",
-                    # "provider": "openai",
-                    # "model": "gpt-image-1",
-                    "n": 1,
-                    "size_code": "M",
-                    "orientation": "square",
-                }
+                "prompt": "add gentle sunbeams",
+                "images": ["https://example.com/input.png"],
+                # "mask": "data:image/png;base64,....",
+                "provider": "openai",
+                "model": "gpt-image-1",
+                "n": 1,
+                "size": "M",
+                "orientation": "square",
             },
         )
         print("edit:", edit.structured_content)

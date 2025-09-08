@@ -59,68 +59,14 @@ Error envelope
 }
 ```
 
-Image tools return two complementary channels.
-
-1. MCP content blocks (runtime)
-
-- One ImageContent per generated/edited image
-- Renderable by any MCP client
-
-2. Structured JSON (minimal, stable)
-
-- ImageToolStructured
-  - ok: boolean
-  - model: Model
-  - image_count: integer
-  - images: ImageDescriptor[] (uri/name/mimeType only)
-  - meta: object (provider/runtime metadata)
-  - error?: Error
-- ImageDescriptor
-  - uri?: string (opaque, no data)
-  - name?: string
-  - mimeType?: string
-
-Example envelope
-
-```
-{
-  "structured_content": {
-    "ok": true,
-    "model": "gpt-image-1",
-    "image_count": 1,
-    "images": [
-      { "uri": "image://abc123", "name": "image-abc123.png", "mimeType": "image/png" }
-    ],
-    "meta": { "provider": "openai", "n": 1 }
-  },
-  "content": [ ImageContent(...), ... ]
-}
-```
-
-Error envelope
-
-```
-{
-  "structured_content": {
-    "ok": false,
-    "model": "gpt-image-1",
-    "image_count": 0,
-    "images": [],
-    "meta": {},
-    "error": { "code": "generation_error", "message": "Failed to generate image: ..." }
-  },
-  "content": []
-}
-```
-
 ______________________________________________________________________
 
 ## Public Schemas Advertised
 
-Tool input/output schemas surfaced to clients.
+Tool input/output schemas surfaced to clients. The input for `generate_image` and `edit_image` corresponds to the fields of their respective `Image...Request` models, passed as top-level named parameters.
 
-- `generate_image`: input → `ImageGenerateRequest` (named parameters), output → `ImageToolStructured`
-- `edit_image`: input → `ImageEditRequest` (named parameters), output → `ImageToolStructured`
+- `generate_image`: input → named parameters from `ImageGenerateRequest`, output → `ImageToolStructured`
+- `edit_image`: input → named parameters from `ImageEditRequest`, output → `ImageToolStructured`
 - `get_model_capabilities`: input → `{ provider?: string }` (named parameter), output → `CapabilitiesResponse`
 
 Note: no blob‑carrying types appear in any structured output schema; image binaries are carried in MCP `ImageContent` blocks.
