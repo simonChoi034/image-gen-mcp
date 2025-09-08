@@ -201,6 +201,7 @@ Create one or more images from a text prompt.
 | `quality` | enum | Optional. `draft` \| `standard` \| `high`. |
 | `background` | enum | Optional. `transparent` \| `opaque` (when supported). |
 | `negative_prompt` | str | Optional. Used when provider supports it. |
+| `directory` | str | Optional. Filesystem directory where the server should save generated images. If omitted a unique temp directory is used. |
 
 ---
 
@@ -235,6 +236,7 @@ Edit an image with a prompt and optional mask.
 | `quality` | enum | Optional. `draft` \| `standard` \| `high`. |
 | `background` | enum | Optional. `transparent` \| `opaque`. |
 | `negative_prompt` | str | Optional. Negative prompt. |
+| `directory` | str | Optional. Filesystem directory where the server should save edited images. If omitted a unique temp directory is used. |
 
 ---
 

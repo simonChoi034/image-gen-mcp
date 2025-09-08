@@ -90,6 +90,28 @@ Every engine adapter applies the same pipeline.
 - Image inputs: normalize any legacy `image`/`image_b64` fields into `images[0]`; when multiple images are provided to single‑image models, use `images[0]` and drop the rest.
 - Observability: record mapping/drops in response.meta for audit/debug
 
+## Saved file paths and directory input
+
+Newer server versions accept an optional `directory` parameter on both `generate_image` and
+`edit_image` tool inputs. When provided, the server will attempt to save generated/edited images
+to that directory (creating it if necessary). When omitted, the server creates a unique temporary
+directory under the system tempdir (e.g., `/tmp` on UNIX-like systems) and saves images there.
+
+Each image descriptor in the minimal `ImageToolStructured.images` array now includes an optional
+`file_path` field with the absolute filesystem path where the image was saved (when saving
+was successful). This field is intended for programmatic access by clients and agents; note that
+the server does not include binary blobs in structured JSON — binaries remain in MCP `ImageContent`
+blocks — `file_path` is informational and points to the on-disk copy the server created.
+
+## Security & lifecycle notes
+
+- The server will attempt to create the target directory using the calling user's permissions. If
+  directory creation fails, the server falls back to a temporary directory and surfaces an error
+  message in the `structured_content.error` or the `meta` field for observability.
+- The server does not automatically remove saved files. Clients are responsible for cleanup and
+  lifecycle management (e.g., move to long-term storage, delete after use). Consider providing a
+  `directory` when you need a predictable, durable location.
+
 This design keeps the public contract stable and shifts provider variability to the adapter layer.
 
 ______________________________________________________________________
