@@ -45,4 +45,7 @@
 ## Agent-Specific Notes
 
 - Exposed tools: `generate_image`, `edit_image`, `get_model_capabilities`.
-- Prefer provider/model-agnostic fields first; use `extras` for niche provider params.
+- Call tools with named parameters (e.g., `generate_image(prompt="...", provider="openai", model="dall-e-3", ...)`). Arguments are not wrapped in a single request object.
+- The `provider` and `model` parameters are required for `generate_image` and `edit_image`.
+- Use `get_model_capabilities` to discover available providers and models before calling generation or editing tools.
+- Prefer provider/model-agnostic fields where possible; use the `extras` dictionary for niche, provider-specific parameters.

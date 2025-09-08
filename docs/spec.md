@@ -65,36 +65,49 @@ The MCP server exposes a unified tool interface:
 - Reports actionable errors consistently across providers.
 - Adds a discovery endpoint for enabled models per credentials.
 
-Endpoints:
+Tools:
 
-- `generate_image(payload)` — generate images.
-- `edit_image(payload)` — edit images with an optional mask.
-- `get_model_capabilities(payload?)` — discover enabled engines and models. Optional payload: `{ provider?: "openai" | "azure_openai" | "vertex" | "gemini" | "openrouter" }`. Returns `{ ok: true, capabilities: CapabilityReport[] }` where each report includes `engine`, `provider`, `family`, `models`, and selected parameter limits.
+- `generate_image(...)` — generate images. Accepts named parameters corresponding to the fields in `ImageGenerateRequest`.
+- `edit_image(...)` — edit images with an optional mask. Accepts named parameters corresponding to the fields in `ImageEditRequest`.
+- `get_model_capabilities(provider?)` — discover enabled engines and models. Optional parameter: `provider`. Returns `CapabilitiesResponse` which contains `{ ok: true, capabilities: CapabilityReport[] }`.
 
-Example:
+Example `get_model_capabilities` response:
 
-```
+```json
 // request
-get_model_capabilities({ provider: "openai" })
+// get_model_capabilities({ provider: "openai" })
 
-// response (excerpt)
+// response (structure based on src/schema.py)
 {
-  ok: true,
-  capabilities: [
+  "ok": true,
+  "capabilities": [
     {
-      engine: "ar:openai",
-      provider: "openai",
-      family: "ar",
-      models: ["gpt-image-1"],
-      response_formats: ["url", "base64"],
-      sizes: ["1024x1024", "1024x1536", "1536x1024"]
+      "provider": "openai",
+      "family": "ar",
+      "models": [
+        {
+          "model": "gpt-image-1",
+          "supports_negative_prompt": null,
+          "supports_background": true,
+          "max_n": null,
+          "supports_edit": true,
+          "supports_mask": true
+        }
+      ]
     },
     {
-      engine: "diffusion:openai",
-      provider: "openai",
-      family: "diffusion",
-      models: ["dall-e-3"],
-      sizes: ["1024x1024", "1024x1792", "1792x1024"]
+      "provider": "openai",
+      "family": "diffusion",
+      "models": [
+        {
+          "model": "dall-e-3",
+          "supports_negative_prompt": null,
+          "supports_background": null,
+          "max_n": 1,
+          "supports_edit": false,
+          "supports_mask": false
+        }
+      ]
     }
   ]
 }
@@ -102,29 +115,21 @@ get_model_capabilities({ provider: "openai" })
 
 ## 6. Routing Logic
 
-The MCP server routing logic will determine the appropriate engine for each image generation request based on:
-
-- Explicit client specification of engine or provider, if provided
-- Default engine preferences configured per deployment or user profile
-- Capability matching (e.g., diffusion engines for high-fidelity images, multimodal LLMs for conversational contexts)
-- Load balancing and rate limit considerations
-
-Routing decisions will be logged for auditing and debugging.
+The MCP server routing logic determines the appropriate engine for each image generation request based on the `provider` and `model` parameters supplied in the tool call.
 
 ### Engine Resolution & Model Handling
 
-Routing precedence for engine selection:
+The `ModelFactory` is responsible for routing.
 
-- If the request specifies `engine`, route there (if credentials exist).
-- Else, infer from `model` when possible.
-- Else, route to the first available credentialed provider.
-
-OpenRouter is treated as OpenAI-compatible using its own API key.
+- The client must specify `provider` and `model` in the request.
+- The factory validates that the requested `provider` has credentials and supports the requested `model`.
+- If valid, it instantiates the correct engine adapter for the request.
+- There is no fallback logic or default engine; requests must be specific.
 
 Model handling:
 
 - AR engines receive the model identifier directly.
-- Diffusion engines map generic model IDs to provider-specific identifiers when needed.
+- Diffusion engines may map generic model IDs to provider-specific identifiers.
 
 ## 7. Dynamic Engine Enablement
 
@@ -163,54 +168,45 @@ This extensible design ensures the MCP server remains adaptable to evolving AI i
 
 ## 10. Implementation Guide
 
-The MCP server implements an abstract base class `BaseImageEngine` defining the core interface for all image generation engines. This class includes methods:
+The MCP server implements an abstract base class `BaseImageEngine` defining the core interface for all image generation engines. This class includes methods for `generate` and `edit`.
 
-- `capabilities()`: returns supported features and parameters.
-- `generate()`: handles image generation requests.
-- `edit()`: supports image editing operations.
+Canonical Pydantic models such as `ImageGenerateRequest` and `ImageEditRequest` standardize request formats across engines.
 
-Canonical dataclasses such as `ImageRequest`, `ImageEditRequest`, and `ImageBatch` standardize request and response formats across engines. Standardized error classes unify error handling and reporting.
+The codebase is organized with separate directories for Auto-regressive (AR) and Diffusion engines inside `src/engines/`. Each provider has its own module within these directories.
 
-The codebase is organized with separate directories for Auto-regressive (AR) and Diffusion engines. Each provider resides in its own file within these directories. AR engines share a common LangGraph agent implementation (`agent_graph.py`), facilitating conversational and multi-turn interactions. Diffusion engines implement provider-specific logic and translation layers.
+Engine selection, validation, and capability listing are managed by the `ModelFactory` (`src/engines/factory.py`). It is the central routing component.
 
-Engine registration and capability listing are managed in `registry.py`, while `selector.py` handles resolution of engine selection based on requested `engine` and optional `family` parameters, applying routing logic as specified.
+Model handling differs by engine type: AR adapters generally pass the model identifier directly to the underlying API, whereas diffusion adapters may use an internal mapping to convert generic model names to provider-specific identifiers.
 
-Model handling differs by engine type: AR adapters pass the model identifier directly to the underlying API, whereas diffusion adapters use a translator mapping to convert generic model names to provider-specific identifiers.
+Testing employs contract tests to verify adapter compliance with the base interface, golden tests to validate output consistency, and routing tests to ensure correct engine selection.
 
-Per-request overrides allow clients to specify engine and model preferences, which take precedence over environment or configuration defaults.
+### Project Folder Structure
 
-Testing employs contract tests to verify adapter compliance with the base interface, golden tests to validate output consistency, routing tests to ensure correct engine selection, and documentation tests to maintain correctness of usage examples and interface definitions.
-
-### Proposed Folder Structure
+The actual folder structure is as follows:
 
 ```
-image_gen_mcp/
-  src/
-    engines/
-      base_engine.py
-      registry.py
-      ar/
-        agent_graph.py
-        openai_ar.py
-        gemini_ar.py
-      diffusion/
-        translator.py
-        openai_diffusion.py
-        azure_diffusion.py
-        vertex_imagen.py
-    routing/
-      selector.py
-    mcp/
-      tools.py
-      schema.py
-    config/
-      env.py
-    utils/
-      http.py
-      logging.py
-      provenance.py
-  tests/
-    engines/
-    routing/
-    mcp/
+src/
+├── __init__.py
+├── main.py
+├── schema.py
+├── settings.py
+├── engines/
+│   ├── __init__.py
+│   ├── base_engine.py
+│   ├── factory.py
+│   ├── ar/
+│   │   ├── gemini.py
+│   │   ├── openai.py
+│   │   └── openrouter.py
+│   └── diffusion/
+│       ├── dalle_diffusion.py
+│       └── vertex_imagen.py
+├── shard/
+│   ├── constants.py
+│   ├── enums.py
+│   └── instructions.py
+└── utils/
+    ├── error_helpers.py
+    ├── image_utils.py
+    └── prompt.py
 ```
