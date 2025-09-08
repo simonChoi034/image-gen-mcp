@@ -203,17 +203,24 @@ jobs:
         run: |
           # Create a fresh environment and test installation
           uv venv --python 3.12 test-release-env
-          source test-release-env/bin/activate
-          pip install dist/*.whl
+          # Use the venv python directly to avoid activation/sourcing issues
+          ./test-release-env/bin/python -m pip install --upgrade pip setuptools wheel
+          ./test-release-env/bin/python -m pip install dist/*.whl
 
-          # Test basic functionality
-          python -c "
-          import sys
-          sys.path.insert(0, '.')
-          from image_gen_mcp.main import app
-          print('Package imports successfully')
-          print(f'FastMCP app: {app}')
-          "
+          # Test basic functionality using the venv's python (imports from installed wheel)
+          # Create a small python script to validate the installed package and run it
+          printf '%s\n' "import importlib" \
+            "pkg = importlib.import_module('image_gen_mcp')" \
+            "print('Package imports successfully:', pkg.__name__)" \
+            "try:" \
+            "  app = importlib.import_module('image_gen_mcp.main').app" \
+            "  print('FastMCP app:', app)" \
+            "except Exception as e:" \
+            "  print('Warning: could not access image_gen_mcp.main.app:', e)" \
+            "  raise" > /tmp/test_installed.py
+          REPO_DIR=$(pwd)
+          # Run the test script from /tmp so the local repo package directory is not picked up
+          cd /tmp && "$REPO_DIR/test-release-env/bin/python" /tmp/test_installed.py
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
