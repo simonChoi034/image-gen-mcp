@@ -6,6 +6,9 @@ import urllib.request
 from enum import StrEnum
 from typing import Any
 
+from openai import AsyncAzureOpenAI as AzureOpenAIClient
+from openai import AsyncOpenAI as OpenAIClient
+
 from ...schema import (
     CapabilityReport,
     EmbeddedResource,
@@ -71,15 +74,6 @@ class GPTImage1Quality(StrEnum):
 class BackgroundValue(StrEnum):
     TRANSPARENT = "transparent"
     OPAQUE = "opaque"
-
-
-# Try to import modern OpenAI SDK classes (async). Fallback gracefully if unavailable.
-try:  # pragma: no cover - import-time feature detection
-    from openai import AsyncAzureOpenAI as AzureOpenAIClient  # type: ignore
-    from openai import AsyncOpenAI as OpenAIClient  # type: ignore
-except Exception:  # pragma: no cover - if the SDK isn't present
-    OpenAIClient = None  # type: ignore
-    AzureOpenAIClient = None  # type: ignore
 
 
 def _is_url(value: str) -> bool:
@@ -151,14 +145,14 @@ class OpenAIAR(ImageEngine):
             return req_provider
         return self.provider
 
-    def _openai_client(self) -> Any:
+    def _openai_client(self) -> OpenAIClient:
         if OpenAIClient is None:  # pragma: no cover
             raise RuntimeError("openai package is required but not installed")
         if not settings.openai_api_key:
             raise ValueError("OPENAI_API_KEY environment variable must be set to use OpenAI provider")
         return OpenAIClient(api_key=settings.openai_api_key, timeout=30.0)
 
-    def _azure_client(self) -> Any:
+    def _azure_client(self) -> AzureOpenAIClient:
         if AzureOpenAIClient is None:  # pragma: no cover
             raise RuntimeError("openai package with AzureOpenAI is required but not installed")
         if not settings.azure_openai_endpoint:
