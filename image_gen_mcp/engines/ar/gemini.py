@@ -3,7 +3,11 @@ from __future__ import annotations
 import base64
 import logging
 from enum import StrEnum
+from functools import lru_cache
 from typing import Any
+
+from google import genai as genai_sdk  # type: ignore
+from google.genai.types import GenerateContentResponse, Part
 
 from ...schema import (
     CapabilityReport,
@@ -49,15 +53,6 @@ class GeminiResponseFormat(StrEnum):
     """Response format constants for Gemini API responses."""
 
     BASE64 = "base64"
-
-
-# Try to import Google Gen AI SDK. Defer hard failure to runtime usage.
-try:  # pragma: no cover - import-time feature detection
-    from google import genai as genai_sdk  # type: ignore
-    from google.genai import types as genai_types  # type: ignore
-except Exception:  # pragma: no cover - SDK not installed
-    genai_sdk = None  # type: ignore
-    genai_types = None  # type: ignore
 
 
 class GeminiAR(ImageEngine):
@@ -121,26 +116,22 @@ class GeminiAR(ImageEngine):
             return req_provider
 
         # If use_vertex_ai is True and Vertex credentials are available, prefer Vertex
-        if settings.use_vertex_ai and settings.vertex_project and settings.vertex_location:
+        if settings.use_vertex:
             return Provider.VERTEX
 
         return self.provider
 
+    @lru_cache
     def _genai_client(self, provider: Provider):
-        if genai_sdk is None:  # pragma: no cover
-            raise RuntimeError("google-genai SDK is required but not installed")
-
         if provider == Provider.VERTEX:
             # Route via Vertex AI using project/location. Credentials via ADC or key file env.
             if not settings.vertex_project:
                 raise ValueError("VERTEX_PROJECT environment variable must be set to use Vertex AI provider")
             if not settings.vertex_location:
                 raise ValueError("VERTEX_LOCATION environment variable must be set to use Vertex AI provider")
-            return genai_sdk.Client(
-                vertexai=True,
-                project=settings.vertex_project,
-                location=settings.vertex_location,
-            )
+            if not settings.vertex_credentials_path:
+                raise ValueError("VERTEX_CREDENTIALS_PATH environment variable must be set to use Vertex AI provider")
+            return genai_sdk.Client(vertexai=True, project=settings.vertex_project, location=settings.vertex_location, credentials=settings.vertex_credentials_path)
 
         # Gemini Developer API path — require explicit API key
         api_key = settings.gemini_api_key
@@ -272,20 +263,19 @@ class GeminiAR(ImageEngine):
 
     # --------------------------- response helpers -------------------------- #
     @staticmethod
-    def _collect_images_from_response(resp: Any) -> list[ResourceContent]:
+    def _collect_images_from_response(resp: GenerateContentResponse) -> list[ResourceContent]:
         images: list[ResourceContent] = []
         try:
-            candidates = getattr(resp, "candidates", []) or []
+            candidates = resp.candidates
             if not candidates:
                 return images
-            parts = getattr(candidates[0], "content", None)
-            parts = getattr(parts, "parts", []) if parts is not None else []
+            parts = candidates[0].content.parts if candidates[0].content and candidates[0].content.parts else []
             for part in parts:
-                inline = getattr(part, "inline_data", None)
+                inline = part.inline_data
                 if inline is None:
                     continue
-                data = getattr(inline, "data", None)  # bytes
-                mime = getattr(inline, "mime_type", None) or C.DEFAULT_MIME
+                data = inline.data  # bytes
+                mime = inline.mime_type or C.DEFAULT_MIME
                 if not data:
                     continue
                 b64 = base64.b64encode(data).decode("utf-8")
@@ -308,7 +298,7 @@ class GeminiAR(ImageEngine):
 
     # ------------------------------- generate ----------------------------- #
     async def generate(self, req: ImageGenerateRequest) -> ImageResponse:  # type: ignore[override]
-        provider = self._select_provider(getattr(req, "provider", None))
+        provider = self._select_provider(req.provider)
         model = req.model or Model.GEMINI_IMAGE_PREVIEW
 
         native, normlog, dropped = self._normalize_common(
@@ -350,8 +340,8 @@ class GeminiAR(ImageEngine):
 
     # -------------------------------- edit ------------------------------- #
     async def edit(self, req: ImageEditRequest) -> ImageResponse:  # type: ignore[override]
-        provider = self._select_provider(getattr(req, "provider", None))
-        model = req.model or Model.GEMINI_IMAGE_PREVIEW
+        provider = self._select_provider(req.provider)
+        model = req.model
 
         native, normlog, dropped = self._normalize_common(
             req_n=req.n,
@@ -371,11 +361,8 @@ class GeminiAR(ImageEngine):
 
             image_bytes, mime = self.read_image_bytes_and_mime(image_src)
 
-            if genai_types is None:  # pragma: no cover
-                raise RuntimeError("google-genai SDK is required but not installed")
-
             # Construct inline image part explicitly to avoid requiring PIL.
-            image_part = genai_types.Part.from_bytes(data=image_bytes, mime_type=mime)
+            image_part = Part.from_bytes(data=image_bytes, mime_type=mime)
 
             client = self._genai_client(provider)
             # Build XML-tagged prompt for edit as well

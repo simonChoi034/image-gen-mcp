@@ -45,6 +45,11 @@ class Settings(BaseSettings):
         """Determine if OpenRouter should be used based on available credentials."""
         return bool(self.openrouter_api_key)
 
+    @property
+    def use_vertex(self) -> bool:
+        """Determine if Vertex AI should be used based on available credentials."""
+        return bool(self.use_vertex_ai and self.vertex_project and self.vertex_location and self.vertex_credentials_path)
+
 
 @lru_cache
 def get_settings() -> Settings:

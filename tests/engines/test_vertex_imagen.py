@@ -5,9 +5,11 @@ import os
 import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from image_gen_mcp.engines.diffusion.vertex_imagen import VertexImagen
-from image_gen_mcp.schema import ImageEditRequest, ImageGenerateRequest, ImageResponse, ResourceContent, EmbeddedResource
-from image_gen_mcp.shard.enums import Provider, Model
+from image_gen_mcp.schema import ImageEditRequest
+from image_gen_mcp.shard.enums import Model, Provider
 
 
 def _make_temp_png() -> str:
@@ -25,18 +27,18 @@ def test_vertex_imagen_capabilities():
     """Test that Vertex Imagen reports correct capabilities including edit support."""
     engine = VertexImagen(provider=Provider.VERTEX)
     caps = engine.get_capability_report()
-    
+
     assert caps.provider == Provider.VERTEX
     assert len(caps.models) == 2
-    
+
     # Check Imagen 4 capabilities
     imagen_4 = next(m for m in caps.models if m.model == Model.IMAGEN_4_STANDARD)
     assert imagen_4.supports_edit is True
     assert imagen_4.supports_mask is True
     assert imagen_4.supports_negative_prompt is True
     assert imagen_4.max_n == 4
-    
-    # Check Imagen 3 capabilities  
+
+    # Check Imagen 3 capabilities
     imagen_3 = next(m for m in caps.models if m.model == Model.IMAGEN_3_GENERATE)
     assert imagen_3.supports_edit is True
     assert imagen_3.supports_mask is True
@@ -53,7 +55,6 @@ def test_image_utils_inheritance():
         image_bytes, mime = engine.read_image_bytes_and_mime(path)
         assert len(image_bytes) > 0
         assert mime == "image/png"
-        
         # Test to_image_data_url method (inherited from base)
         data_url = engine.to_image_data_url(path)
         assert data_url.startswith("data:image/png;base64,")
@@ -61,142 +62,135 @@ def test_image_utils_inheritance():
         os.remove(path)
 
 
-@patch('image_gen_mcp.engines.diffusion.vertex_imagen.genai_sdk')
-@patch('image_gen_mcp.engines.diffusion.vertex_imagen.genai_types')
-async def test_edit_with_base_image(mock_genai_types, mock_genai_sdk):
+@patch("google.genai.types.RawReferenceImage")
+@patch("google.genai.types.MaskReferenceImage")
+@patch("google.genai.types.EditImageConfig")
+@patch("google.genai.Client")
+@patch("PIL.Image.open")
+async def test_edit_with_base_image(mock_pil_open, mock_client_class, mock_edit_config, mock_mask_ref, mock_raw_ref):
     """Test edit method with base image (no mask)."""
     # Setup mocks
     mock_client = MagicMock()
-    mock_genai_sdk.Client.return_value = mock_client
-    
-    mock_part = MagicMock()
-    mock_genai_types.Part.from_bytes.return_value = mock_part
-    
-    # Mock response with image data
+    mock_client_class.return_value = mock_client
+
+    # Mock PIL image
+    mock_pil_image = MagicMock()
+    mock_pil_open.return_value = mock_pil_image
+
+    # Mock types
+    mock_raw_ref.return_value = MagicMock()
+    mock_mask_ref.return_value = MagicMock()
+    mock_edit_config.return_value = MagicMock()
+
+    # Mock response with generated_images
     mock_response = MagicMock()
-    mock_candidate = MagicMock()
-    mock_content = MagicMock()
-    mock_inline_part = MagicMock()
-    mock_inline_data = MagicMock()
-    
-    mock_inline_data.data = b"fake_image_bytes"
-    mock_inline_data.mime_type = "image/png"
-    mock_inline_part.inline_data = mock_inline_data
-    mock_content.parts = [mock_inline_part]
-    mock_candidate.content = mock_content
-    mock_response.candidates = [mock_candidate]
-    
-    mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
-    
+    mock_generated_image = MagicMock()
+    mock_generated_image.image.image_bytes = b"fake_image_bytes"
+    mock_response.generated_images = [mock_generated_image]
+
+    mock_client.aio.models.edit_image = AsyncMock(return_value=mock_response)
+
     # Create engine and test data
     engine = VertexImagen(provider=Provider.VERTEX)
-    
+
     # Mock settings for client creation
-    with patch('image_gen_mcp.engines.diffusion.vertex_imagen.settings') as mock_settings:
+    with patch("image_gen_mcp.engines.diffusion.vertex_imagen.settings") as mock_settings:
         mock_settings.vertex_project = "test-project"
         mock_settings.vertex_location = "us-central1"
-        
+        mock_settings.vertex_credentials_path = "/fake/path"
+
         # Create test image
         test_image = _make_temp_png()
         try:
             # Create edit request
-            req = ImageEditRequest(
-                prompt="Edit this image",
-                images=[test_image],
-                provider=Provider.VERTEX,
-                model=Model.IMAGEN_4_STANDARD,
-                n=1
-            )
-            
+            req = ImageEditRequest(prompt="Edit this image", images=[test_image], provider=Provider.VERTEX, model=Model.IMAGEN_4_STANDARD, n=1)
+
             # Call edit method
             response = await engine.edit(req)
-            
+
             # Verify response
             assert response.ok is True
             assert response.model == Model.IMAGEN_4_STANDARD
             assert len(response.content) == 1
             assert response.content[0].type == "resource"
+            # Engine now returns PNG images (output_mime_type set to image/png)
             assert response.content[0].resource.mimeType == "image/png"
-            
+
             # Verify SDK was called correctly
-            mock_genai_types.Part.from_bytes.assert_called_once()
-            mock_client.aio.models.generate_content.assert_called_once()
-            
-            # Verify the call had the right structure (image part + prompt)
-            call_args = mock_client.aio.models.generate_content.call_args
-            assert call_args[1]['model'] == str(Model.IMAGEN_4_STANDARD)
-            assert len(call_args[1]['contents']) == 2  # image part + prompt
-            
+            mock_client.aio.models.edit_image.assert_called_once()
+
+            # Verify the call arguments
+            call_args = mock_client.aio.models.edit_image.call_args
+            assert call_args[1]["model"] == str(Model.IMAGEN_4_STANDARD)
+            assert call_args[1]["prompt"] == "Edit this image"
+            assert len(call_args[1]["reference_images"]) == 1  # base image only
+
         finally:
             os.remove(test_image)
 
 
-@patch('image_gen_mcp.engines.diffusion.vertex_imagen.genai_sdk')
-@patch('image_gen_mcp.engines.diffusion.vertex_imagen.genai_types')
-async def test_edit_with_mask(mock_genai_types, mock_genai_sdk):
+@patch("google.genai.types.RawReferenceImage")
+@patch("google.genai.types.MaskReferenceImage")
+@patch("google.genai.types.EditImageConfig")
+@patch("google.genai.Client")
+@patch("PIL.Image.open")
+async def test_edit_with_mask(mock_pil_open, mock_client_class, mock_edit_config, mock_mask_ref, mock_raw_ref):
     """Test edit method with base image and mask."""
     # Setup mocks
     mock_client = MagicMock()
-    mock_genai_sdk.Client.return_value = mock_client
-    
-    mock_part = MagicMock()
-    mock_genai_types.Part.from_bytes.return_value = mock_part
-    
-    # Mock response with image data
+    mock_client_class.return_value = mock_client
+
+    # Mock PIL images
+    mock_pil_image = MagicMock()
+    mock_mask_image = MagicMock()
+    mock_pil_open.side_effect = [mock_pil_image, mock_mask_image]
+
+    # Mock types
+    mock_raw_ref.return_value = MagicMock()
+    mock_mask_ref.return_value = MagicMock()
+    mock_edit_config.return_value = MagicMock()
+
+    # Mock response with generated_images
     mock_response = MagicMock()
-    mock_candidate = MagicMock()
-    mock_content = MagicMock()
-    mock_inline_part = MagicMock()
-    mock_inline_data = MagicMock()
-    
-    mock_inline_data.data = b"fake_image_bytes"
-    mock_inline_data.mime_type = "image/png"
-    mock_inline_part.inline_data = mock_inline_data
-    mock_content.parts = [mock_inline_part]
-    mock_candidate.content = mock_content
-    mock_response.candidates = [mock_candidate]
-    
-    mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
-    
+    mock_generated_image = MagicMock()
+    mock_generated_image.image.image_bytes = b"fake_image_bytes"
+    mock_response.generated_images = [mock_generated_image]
+
+    mock_client.aio.models.edit_image = AsyncMock(return_value=mock_response)
+
     # Create engine and test data
     engine = VertexImagen(provider=Provider.VERTEX)
-    
+
     # Mock settings for client creation
-    with patch('image_gen_mcp.engines.diffusion.vertex_imagen.settings') as mock_settings:
+    with patch("image_gen_mcp.engines.diffusion.vertex_imagen.settings") as mock_settings:
         mock_settings.vertex_project = "test-project"
         mock_settings.vertex_location = "us-central1"
-        
+        mock_settings.vertex_credentials_path = "/fake/path"
+
         # Create test images
         test_image = _make_temp_png()
         test_mask = _make_temp_png()
         try:
             # Create edit request with mask
-            req = ImageEditRequest(
-                prompt="Edit this image with mask",
-                images=[test_image],
-                mask=test_mask,
-                provider=Provider.VERTEX,
-                model=Model.IMAGEN_4_STANDARD,
-                n=1
-            )
-            
+            req = ImageEditRequest(prompt="Edit this image with mask", images=[test_image], mask=test_mask, provider=Provider.VERTEX, model=Model.IMAGEN_4_STANDARD, n=1)
+
             # Call edit method
             response = await engine.edit(req)
-            
+
             # Verify response
             assert response.ok is True
             assert response.model == Model.IMAGEN_4_STANDARD
             assert len(response.content) == 1
-            
+
             # Verify SDK was called correctly
-            assert mock_genai_types.Part.from_bytes.call_count == 2  # base image + mask
-            mock_client.aio.models.generate_content.assert_called_once()
-            
-            # Verify the call had the right structure (image part + mask part + prompt)
-            call_args = mock_client.aio.models.generate_content.call_args
-            assert call_args[1]['model'] == str(Model.IMAGEN_4_STANDARD)
-            assert len(call_args[1]['contents']) == 3  # image part + mask part + prompt
-            
+            mock_client.aio.models.edit_image.assert_called_once()
+
+            # Verify the call arguments
+            call_args = mock_client.aio.models.edit_image.call_args
+            assert call_args[1]["model"] == str(Model.IMAGEN_4_STANDARD)
+            assert call_args[1]["prompt"] == "Edit this image with mask"
+            assert len(call_args[1]["reference_images"]) == 2  # base image + mask
+
         finally:
             os.remove(test_image)
             os.remove(test_mask)
@@ -204,58 +198,14 @@ async def test_edit_with_mask(mock_genai_types, mock_genai_sdk):
 
 async def test_edit_missing_image():
     """Test edit method error handling when no image is provided."""
-    engine = VertexImagen(provider=Provider.VERTEX)
-    
-    # Create edit request without images
-    req = ImageEditRequest(
-        prompt="Edit this image",
-        images=[],  # Empty images list
-        provider=Provider.VERTEX,
-        model=Model.IMAGEN_4_STANDARD,
-    )
-    
-    # Mock settings for client creation
-    with patch('image_gen_mcp.engines.diffusion.vertex_imagen.settings') as mock_settings:
-        mock_settings.vertex_project = "test-project"
-        mock_settings.vertex_location = "us-central1"
-        
-        # Call edit method
-        response = await engine.edit(req)
-        
-        # Verify error response
-        assert response.ok is False
-        assert response.error is not None
-        assert "images[0] is required for edit" in response.error.message
-
-
-@patch('image_gen_mcp.engines.diffusion.vertex_imagen.genai_sdk', None)
-async def test_edit_sdk_missing():
-    """Test edit method error handling when SDK is not installed."""
-    engine = VertexImagen(provider=Provider.VERTEX)
-    
-    # Create test image
-    test_image = _make_temp_png()
-    try:
-        # Create edit request
-        req = ImageEditRequest(
+    # Attempt to create edit request without images should raise ValidationError
+    with pytest.raises(Exception) as exc_info:
+        ImageEditRequest(
             prompt="Edit this image",
-            images=[test_image],
+            images=[],  # Empty images list
             provider=Provider.VERTEX,
             model=Model.IMAGEN_4_STANDARD,
         )
-        
-        # Mock settings for client creation
-        with patch('image_gen_mcp.engines.diffusion.vertex_imagen.settings') as mock_settings:
-            mock_settings.vertex_project = "test-project"
-            mock_settings.vertex_location = "us-central1"
-            
-            # Call edit method
-            response = await engine.edit(req)
-            
-            # Verify error response
-            assert response.ok is False
-            assert response.error is not None
-            assert "google-genai SDK is required" in response.error.message
-            
-    finally:
-        os.remove(test_image)
+
+    # Verify it's a validation error
+    assert "images must contain at least one item" in str(exc_info.value)
