@@ -249,13 +249,14 @@ async def mcp_get_model_capabilities(
     """Return enabled engines and supported models/knobs for current credentials."""
     try:
         if provider:
-            report = ModelFactory.get_capabilities_for_provider(provider)
-            capabilities = [report] if report else []
+            reports = ModelFactory.get_capabilities_for_provider(provider)
+            capabilities = reports if reports else []
         else:
             # Get capabilities for all enabled providers
             enabled_providers = [p for p, enabled in ModelFactory.get_enabled_providers().items() if enabled]
-            reports = [ModelFactory.get_capabilities_for_provider(p) for p in enabled_providers]
-            capabilities = [r for r in reports if r is not None]
+            reports_nested = [ModelFactory.get_capabilities_for_provider(p) for p in enabled_providers]
+            # Flatten nested lists and filter out empty reports
+            capabilities = [r for sub in reports_nested for r in sub if r is not None]
 
         return CapabilitiesResponse(capabilities=capabilities)
 

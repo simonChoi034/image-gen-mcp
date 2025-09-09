@@ -103,12 +103,23 @@ Azure OpenAI Images
 
 Vertex Imagen (3/4)
 
+NOTE: Imagen image editing is only supported by the `imagen-3.0-capability-001` model. Most other Imagen models do not support image editing.
+
 - Count: `sampleCount` 1–4.
 - Aspect ratio: `1:1`, `3:4`, `4:3`, `9:16`, `16:9`.
 - Output options: `mimeType` + `compressionQuality`.
 - Safety/controls: `personGeneration`, `safetySetting/safetyFilterLevel`, `seed`, `addWatermark`, `enhancePrompt`, `negativePrompt`.
 - Response: base64 image bytes (`bytesBase64Encoded`).
-- Edits: `referenceImages` with `RAW` base image and optional `MASK` with `maskImageConfig` (`maskMode`, `dilation`), also supports mask‑free/insertion removal editing.
+- Edits: `referenceImages` with `RAW` base image and optional `MASK` with `maskImageConfig` (`maskMode`, `dilation`).
+
+Model support notes:
+
+- Imagen image editing: only `imagen-3.0-capability-001` supports image editing operations. Other Imagen models listed below are generation-only and do not support editing.
+- Imagen generation models supported by this server:
+  - `imagen-4.0-generate-001`
+  - `imagen-4.0-fast-generate-001`
+  - `imagen-4.0-ultra-generate-001`
+  - `imagen-3.0-capability-001` (also supports editing)
 
 Gemini 2.5 Flash Image (native)
 

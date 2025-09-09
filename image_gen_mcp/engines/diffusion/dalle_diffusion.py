@@ -21,14 +21,11 @@ from ...shard.enums import (
     Orientation,
     Provider,
 )
+from ...utils.error_helpers import augment_with_capability_tip
 from ..base_engine import ImageEngine
 
 settings = get_settings()
-
-
-# ============================================================================
-# DALL·E 3 SPECIFIC ENUMS AND CONSTANTS
-# ============================================================================
+# DALL·E 3 enums/constants
 
 
 class DalleSize(StrEnum):
@@ -73,40 +70,19 @@ try:  # pragma: no cover - import-time feature detection
 except Exception:  # pragma: no cover - if the SDK isn't present
     OpenAIClient = None  # type: ignore
     AzureOpenAIClient = None  # type: ignore
-
-
-# ============================================================================
-# DALL·E UNIFIED ENGINE CLASS
-# ============================================================================
+# DALL·E engine
 
 
 class DalleDiffusion(ImageEngine):
-    """Unified DALL·E 3 adapter for both OpenAI and Azure OpenAI providers.
+    """Unified DALL·E 3 adapter for OpenAI/Azure.
 
-    This adapter provides a clean, maintainable interface for DALL·E 3 model
-    supporting both OpenAI and Azure OpenAI providers. Key features:
-
-    - Unified provider selection based on credentials and request preferences
-    - Automatic parameter normalization (n=1, size mapping, response format)
-    - Comprehensive error handling with actionable messages
-    - Provider-specific routing with fallback logic
-    - No edit support (DALL·E 3 limitation - use GPT-Image-1 for edits)
-
-    Architecture:
-    - Single engine handling both providers through client selection
-    - Modular normalization and error handling methods
-    - Consistent response formatting across providers
-    - Comprehensive capability discovery for runtime introspection
+    Provides generation-only support and unified parameter handling.
     """
 
     def __init__(self, provider: Provider) -> None:
         super().__init__(provider=provider, name=f"diffusion:{provider.value}")
 
-    # ========================================================================
-    # CAPABILITY DISCOVERY
-    # ========================================================================
-
-    # --------------------------- capabilities ----------------------------- #
+    # Capability discovery
     def get_capability_report(self) -> CapabilityReport:
         """Return capability report for this engine's provider."""
         # Single model; advertise shared parameters at report level.
@@ -125,11 +101,7 @@ class DalleDiffusion(ImageEngine):
             ],
         )
 
-    # ========================================================================
-    # CLIENT MANAGEMENT
-    # ========================================================================
-
-    # --------------------------- client helpers --------------------------- #
+    # Client management
     def _select_provider(self, req_provider: Provider | None) -> Provider:
         """Select provider - prefer request provider if compatible, otherwise use engine's provider."""
         if req_provider and req_provider == self.provider:
@@ -154,11 +126,7 @@ class DalleDiffusion(ImageEngine):
             api_version=settings.azure_openai_api_version or API_VERSION_DEFAULT,
         )
 
-    # ========================================================================
-    # PARAMETER NORMALIZATION
-    # ========================================================================
-
-    # --------------------------- normalization utils ---------------------- #
+    # Parameter normalization
     def _normalize_count(self, req_n: int | None) -> tuple[int, dict[str, Any]]:
         """Normalize count parameter - DALL·E 3 only supports n=1."""
         normlog = {}
@@ -192,10 +160,9 @@ class DalleDiffusion(ImageEngine):
         normlog["response_format"] = resp_format
         return resp_format, normlog
 
-    # --------------------------- error handling --------------------------- #
+    # Error handling
     def _create_provider_error(self, model: Model, provider: Provider, normlog: dict[str, Any], exception: Exception) -> ImageResponse:
         """Create error response for provider API failures."""
-        from ...utils.error_helpers import augment_with_capability_tip
 
         return ImageResponse(
             ok=False,
@@ -222,11 +189,7 @@ class DalleDiffusion(ImageEngine):
             error=Error(code=DalleErrorType.EDIT_NOT_SUPPORTED.value, message="DALL·E 3 edits are not supported; use GPT-Image-1."),
         )
 
-    # ========================================================================
-    # RESPONSE PROCESSING
-    # ========================================================================
-
-    # --------------------------- response helpers -------------------------- #
+    # Response processing
     def _process_image_data(self, result: Any, want_b64: bool) -> list[ResourceContent]:
         """Process API response data into embedded ResourceContent objects."""
         images: list[ResourceContent] = []
@@ -255,15 +218,11 @@ class DalleDiffusion(ImageEngine):
 
         return images
 
-    # ========================================================================
-    # API OPERATIONS
-    # ========================================================================
-
-    # ------------------------------- generate ----------------------------- #
+    # API operations
     def generate(self, req: ImageGenerateRequest) -> ImageResponse:  # type: ignore[override]
         """Generate images using DALL·E 3 via OpenAI or Azure OpenAI."""
         provider = self._select_provider(getattr(req, "provider", None))
-        model = req.model or Model.DALL_E_3
+        model = req.model
 
         # Normalize parameters
         n, n_normlog = self._normalize_count(req.n)

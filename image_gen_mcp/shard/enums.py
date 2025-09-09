@@ -107,7 +107,10 @@ class Model(StrEnum):
     # Diffusion models
     DALL_E_3 = "dall-e-3"  # OpenAI / Azure
     IMAGEN_4_STANDARD = "imagen-4.0-generate-001"  # Vertex
+    IMAGEN_4_FAST = "imagen-4.0-fast-generate-001"  # Vertex
+    IMAGEN_4_ULTRA = "imagen-4.0-ultra-generate-001"  # Vertex
     IMAGEN_3_GENERATE = "imagen-3.0-generate-002"  # Vertex
+    IMAGEN_3_CAPABILITY = "imagen-3.0-capability-001"  # Vertex (supports editing)
 
 
 __all__ = ["Provider", "Family", "OutputFormat", "Model", "SizeCode", "Orientation", "Quality", "Background"]

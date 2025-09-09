@@ -31,9 +31,7 @@ from ..base_engine import ImageEngine
 settings = get_settings()
 
 
-# ============================================================================
-# OPENROUTER SPECIFIC ENUMS AND CONSTANTS
-# ============================================================================
+# OpenRouter-specific enums/constants
 
 
 class OpenRouterEndpoint(StrEnum):
@@ -67,28 +65,14 @@ class OpenRouterImageKey(StrEnum):
     URL = "url"
 
 
-# ============================================================================
-# OPENROUTER AR ENGINE CLASS
-# ============================================================================
+# OpenRouter AR engine
 
 
 class OpenRouterAR(ImageEngine):
-    """OpenRouter AR adapter for Gemini image preview via OpenRouter API.
+    """OpenRouter AR adapter for Gemini image preview.
 
-    This adapter provides a clean interface for OpenRouter's Gemini image preview model
-    with comprehensive error handling and response processing. Key features:
-
-    - Targets "google/gemini-2.5-flash-image-preview" via OpenRouter
-    - Handles varied response structures with best-effort image extraction
-    - Returns base64 images from multiple possible response formats
-    - Drops unsupported parameters
-    - Edit supported using OpenAI-compatible image input in messages
-
-    Architecture:
-    - Modular normalization and error handling methods
-    - Recursive response parsing for flexible image extraction
-    - Reusable HTTP client operations
-    - Comprehensive capability discovery
+    Wraps OpenRouter's OpenAI-compatible API surface and provides robust
+    response parsing and error handling for image generation and editing.
     """
 
     def __init__(self, provider: Provider = Provider.OPENROUTER) -> None:
@@ -101,11 +85,7 @@ class OpenRouterAR(ImageEngine):
         except Exception:  # pragma: no cover - SDK not installed
             self._AsyncOpenAI = None  # type: ignore[attr-defined]
 
-    # ========================================================================
-    # CAPABILITY DISCOVERY
-    # ========================================================================
-
-    # --------------------------- capabilities ----------------------------- #
+    # Capability discovery
     def get_capability_report(self) -> CapabilityReport:
         """Return capability report for OpenRouter provider."""
         # Single model; advertise shared parameters at report level.
@@ -124,10 +104,7 @@ class OpenRouterAR(ImageEngine):
             ],
         )
 
-    # ========================================================================
-    # PARAMETER NORMALIZATION
-    # ========================================================================
-    # --------------------------- normalization utils ---------------------- #
+    # Parameter normalization
     def _normalize_count(self, req_n: int | None) -> tuple[int, dict[str, Any]]:
         """Normalize and clamp the count parameter for OpenRouter."""
         normlog: dict[str, Any] = {}
@@ -154,12 +131,10 @@ class OpenRouterAR(ImageEngine):
                 dropped.append(field_name)
         return dropped
 
-    # --------------------------- error handling --------------------------- #
+    # Error handling
 
     def _create_provider_error(self, model: Model, normlog: dict[str, Any], dropped: list[str], exception: Exception) -> ImageResponse:
         """Create error response for provider API failures."""
-        from ...utils.error_helpers import augment_with_capability_tip
-
         return ImageResponse(
             ok=False,
             content=[],
@@ -187,10 +162,7 @@ class OpenRouterAR(ImageEngine):
 
     # Unsupported-field helpers removed; engine always drops unsupported fields.
 
-    # ========================================================================
-    # HTTP CLIENT OPERATIONS
-    # ========================================================================
-    # --------------------------- client helpers --------------------------- #
+    # HTTP client operations
     def _client(self):
         """Return configured AsyncOpenAI client routed to OpenRouter base URL."""
         if getattr(self, "_AsyncOpenAI", None) is None:  # pragma: no cover
@@ -221,11 +193,7 @@ class OpenRouterAR(ImageEngine):
         """
         return self.to_image_data_url(source)
 
-    # ========================================================================
-    # RESPONSE PROCESSING
-    # ========================================================================
-
-    # --------------------------- response helpers -------------------------- #
+    # Response processing helpers
     def _extract_images_from_response(self, obj: Any) -> list[ResourceContent]:
         """Best-effort recursive extraction of images from OpenRouter responses."""
         results: list[ResourceContent] = []
@@ -272,11 +240,7 @@ class OpenRouterAR(ImageEngine):
         walk(obj)
         return results
 
-    # ========================================================================
-    # API OPERATIONS
-    # ========================================================================
-
-    # ------------------------------- generate ----------------------------- #
+    # API operations: generate / edit
     async def generate(self, req: ImageGenerateRequest) -> ImageResponse:  # type: ignore[override]
         """Generate images using OpenRouter API."""
         model = req.model or Model.OPENROUTER_GOOGLE_GEMINI_IMAGE
