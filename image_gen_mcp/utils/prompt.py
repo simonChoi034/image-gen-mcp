@@ -12,7 +12,11 @@ from ..shard.enums import Background, Model, Orientation, Quality, SizeCode
 
 # This guidance format matches adapters in docs/schema.md, e.g.:
 # "[guidance: orientation: portrait; approx size tier: S; quality: draft; avoid: no text]"
-_GUIDANCE_TEMPLATE = jinja2.Environment(autoescape=False, trim_blocks=True, lstrip_blocks=True).from_string(
+_GUIDANCE_TEMPLATE = jinja2.Environment(
+    autoescape=False,
+    trim_blocks=True,
+    lstrip_blocks=True,
+).from_string(
     """
 <task>
 {{ prompt | trim }}
@@ -24,12 +28,84 @@ _GUIDANCE_TEMPLATE = jinja2.Environment(autoescape=False, trim_blocks=True, lstr
 </avoid>
 {% endif %}
 
+{# Only render guidance if there is at least one folded field #}
 {% if fold.orientation or fold.size or fold.quality or fold.background %}
 <guidance>
-    {% if fold.orientation %}<orientation>{{ fold.orientation }}</orientation>{% endif %}
-    {% if fold.size %}<size>{{ fold.size }}</size>{% endif %}
-    {% if fold.quality %}<quality>{{ fold.quality }}</quality>{% endif %}
-    {% if fold.background %}<background>{{ fold.background }}</background>{% endif %}
+{# Orientation guidance #}
+{% if fold.orientation %}
+<orientation>
+{% if fold.orientation == "square" %}
+- Orientation: Square (1:1). Use when you want centered compositions, avatars, icons, or product thumbnails.
+    Example phrasing: "Square format (1:1) — crop to a centered subject."
+{% elif fold.orientation == "portrait" %}
+- Orientation: Portrait (taller than wide; e.g., 3:4). Use for portraits, posters, or mobile vertical displays.
+    Example phrasing: "Portrait orientation — taller than wide; focus on full body or head-and-shoulders."
+{% elif fold.orientation == "landscape" %}
+- Orientation: Landscape (wider than tall; e.g., 4:3 or wider). Use for landscapes, banners, or cinematic compositions.
+    Example phrasing: "Landscape orientation — horizontally wide composition, broad field of view."
+{% else %}
+- Orientation: {{ fold.orientation }} (unrecognized). Prefer: square / portrait / landscape.
+{% endif %}
+</orientation>
+{% endif %}
+
+{# Size guidance #}
+{% if fold.size %}
+<size>
+{% if fold.size == "S" %}
+- Size: Small (S). Fast generation, lower detail. Approx: up to ~512 px on long side. Use for thumbnails or quick drafts.
+    Example phrasing: "Approx size tier: S (small, fast, lower detail)."
+{% elif fold.size == "M" %}
+- Size: Medium (M). Balanced quality vs speed. Approx: ~1024 px on long side. Good default for most use-cases.
+    Example phrasing: "Approx size tier: M (~1024 px long side; balanced quality)."
+{% elif fold.size == "L" %}
+- Size: Large (L). Highest detail, slower. Approx: 2048 px+ on long side; suitable for print or high-res output.
+    Example phrasing: "Approx size tier: L (large, highest detail — slower)."
+{% else %}
+- Size: {{ fold.size }} (unrecognized). Prefer: S / M / L.
+{% endif %}
+</size>
+{% endif %}
+
+{# Quality guidance #}
+{% if fold.quality %}
+<quality>
+{% if fold.quality == "draft" %}
+- Quality: Draft. Prioritize speed and rough composition over fine detail and texture.
+    Example phrasing: "Quality: draft — coarse detail, faster render."
+{% elif fold.quality == "standard" %}
+- Quality: Standard. Balanced settings for production-quality images.
+    Example phrasing: "Quality: standard — balanced detail and generation time."
+{% elif fold.quality == "high" %}
+- Quality: High. Prioritize fine textures, realistic lighting, and high fidelity; expect longer render times.
+    Example phrasing: "Quality: high — prioritize photoreal detail and fine textures."
+{% else %}
+- Quality: {{ fold.quality }} (unrecognized). Prefer: draft / standard / high.
+{% endif %}
+</quality>
+{% endif %}
+
+{# Background guidance #}
+{% if fold.background %}
+<background>
+{% if fold.background == "transparent" %}
+- Background: Transparent (alpha). Suitable for overlays and compositing; keep edges clean for cutouts.
+    Example phrasing: "Background: transparent — preserve alpha where subject is not present."
+{% elif fold.background == "opaque" %}
+- Background: Opaque. Render with a solid/background environment (default). Specify a desired color or neutral backdrop if needed.
+    Example phrasing: "Background: opaque — use plain neutral backdrop (e.g., white or light grey)."
+{% else %}
+- Background: {{ fold.background }} (unrecognized). Prefer: transparent / opaque.
+{% endif %}
+</background>
+{% endif %}
+
+{# Short summary line to suggest how to merge guidance into the task prompt #}
+<note>
+If folding these knobs into the textual instruction, append a short guidance phrase to the task
+such as: "[guidance: orientation: portrait; approx size tier: M; quality: standard; background: transparent; avoid: no text]".
+Keep guidance concise and prioritized (avoid long paragraphs).
+</note>
 </guidance>
 {% endif %}
 """
