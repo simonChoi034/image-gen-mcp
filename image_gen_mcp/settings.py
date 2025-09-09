@@ -18,7 +18,6 @@ class Settings(BaseSettings):
 
     gemini_api_key: str | None = Field(default=None, description="API key for Google Gemini")
 
-    use_vertex_ai: bool = Field(default=False, description="If true, prefer Google Vertex AI when available")
     vertex_project: str | None = Field(default=None, description="Project ID for Google Vertex AI")
     vertex_location: str | None = Field(default=None, description="Location for Google Vertex AI")
     vertex_credentials_path: str | None = Field(default=None, description="Path to Google Cloud credentials JSON file")
@@ -48,7 +47,7 @@ class Settings(BaseSettings):
     @property
     def use_vertex(self) -> bool:
         """Determine if Vertex AI should be used based on available credentials."""
-        return bool(self.use_vertex_ai and self.vertex_project and self.vertex_location and self.vertex_credentials_path)
+        return bool(self.vertex_project and self.vertex_location and self.vertex_credentials_path)
 
 
 @lru_cache
