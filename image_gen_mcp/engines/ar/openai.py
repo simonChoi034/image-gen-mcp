@@ -27,6 +27,7 @@ from ...shard.enums import (
     Quality,
     SizeCode,
 )
+from ...utils.error_helpers import augment_with_capability_tip
 from ...utils.prompt import render_prompt_with_guidance
 from ..base_engine import ImageEngine
 
@@ -80,10 +81,6 @@ except Exception:  # pragma: no cover - if the SDK isn't present
     OpenAIClient = None  # type: ignore
     AzureOpenAIClient = None  # type: ignore
 
-    # ============================================================================
-    # UTILITY FUNCTIONS (MODULE LEVEL)
-    # ============================================================================
-
 
 def _is_url(value: str) -> bool:
     """Check if a string is an HTTP/HTTPS URL."""
@@ -114,38 +111,21 @@ def _read_image_bytes(source: str) -> bytes:
 # GPTImage1Quality.from_quality inline where needed.
 
 
-# ============================================================================
-# OPENAI AR ENGINE CLASS
-# ============================================================================
+# OpenAI AR engine
 
 
 class OpenAIAR(ImageEngine):
-    """OpenAI/Azure AR adapter for GPT-Image-1 aligned with unified schema.
+    """OpenAI/Azure AR adapter for GPT-Image-1.
 
-    This adapter provides a clean, maintainable interface for OpenAI's GPT-Image-1 model
-    supporting both OpenAI and Azure OpenAI providers. Key features:
-
-    - Honors unified controls: size/orientation, quality, background (transparent), n
-    - Drops unsupported fields silently
-    - Comprehensive normalization logging in response metadata
-    - Provider-specific routing with credential-based fallbacks
-    - Supports both image generation and editing with mask support
-
-    Architecture:
-    - Modular normalization methods for each parameter type
-    - Reusable error handling with consistent response formatting
-    - Streamlined API client operations with parameter validation
-    - Comprehensive capability discovery for runtime introspection
+    Provides unified parameter handling and client routing for OpenAI/Azure.
+    Supports generation and editing with provider-specific routing and
+    normalization of parameters such as size, quality, and background.
     """
 
     def __init__(self, provider: Provider) -> None:
         super().__init__(provider=provider, name=f"ar:{provider.value}")
 
-    # ========================================================================
-    # CAPABILITY DISCOVERY
-    # ========================================================================
-
-    # --------------------------- capabilities ----------------------------- #
+    # Capability discovery
     def get_capability_report(self) -> CapabilityReport:
         """Return capability report for this engine's provider."""
         # Single model; parameters are shared, advertise them at report level.
@@ -164,11 +144,7 @@ class OpenAIAR(ImageEngine):
             ],
         )
 
-    # ========================================================================
-    # CLIENT MANAGEMENT
-    # ========================================================================
-
-    # --------------------------- client helpers --------------------------- #
+    # Client management
     def _select_provider(self, req_provider: Provider | None) -> Provider:
         """Select provider - prefer request provider if compatible, otherwise use engine's provider."""
         if req_provider and req_provider == self.provider:
@@ -196,11 +172,7 @@ class OpenAIAR(ImageEngine):
             timeout=30.0,
         )
 
-    # ========================================================================
-    # PARAMETER NORMALIZATION
-    # ========================================================================
-
-    # --------------------------- normalization utils ---------------------- #
+    # Parameter normalization
     def _normalize_count(self, req_n: int | None) -> tuple[int, dict[str, Any]]:
         """Normalize and clamp the count parameter."""
         normalization = {}
@@ -248,13 +220,10 @@ class OpenAIAR(ImageEngine):
         # negative_prompt is honored via prompt engineering; do not drop
         return dropped
 
-    # --------------------------- error handling --------------------------- #
-    # Unsupported-field helpers removed; engine now always drops unsupported fields.
+    # Error handling
 
     def _create_provider_error(self, model: Model, provider: Provider, normlog: dict[str, Any], dropped: list[str], exception: Exception) -> ImageResponse:
         """Create error response for provider API failures."""
-        from ...utils.error_helpers import augment_with_capability_tip
-
         return ImageResponse(
             ok=False,
             content=[],
@@ -264,7 +233,6 @@ class OpenAIAR(ImageEngine):
 
     def _create_provider_edit_error(self, model: Model, provider: Provider, normlog: dict[str, Any], dropped: list[str], exception: Exception) -> ImageResponse:
         """Create error response for provider API failures in edit operations."""
-        from ...utils.error_helpers import augment_with_capability_tip
 
         return ImageResponse(
             ok=False,
@@ -273,7 +241,7 @@ class OpenAIAR(ImageEngine):
             error=Error(code=C.ERROR_CODE_PROVIDER_ERROR, message=augment_with_capability_tip(str(exception))),
         )
 
-    # --------------------------- client operations ------------------------ #
+    # Client operations
     async def _execute_generate_call(self, client: Any, model: str, prompt: str, native: dict[str, Any]) -> Any:
         """Execute image generation API call with appropriate parameters."""
         params = {
@@ -422,7 +390,6 @@ class OpenAIAR(ImageEngine):
         except Exception as e:  # pragma: no cover - provider failure path
             return self._create_provider_error(model, provider, normlog, dropped, e)
 
-    # -------------------------------- edit ------------------------------- #
     async def edit(self, req: ImageEditRequest) -> ImageResponse:  # type: ignore[override]
         provider = self._select_provider(getattr(req, "provider", None))
         model = req.model or Model.GPT_IMAGE_1

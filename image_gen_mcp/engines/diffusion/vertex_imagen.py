@@ -30,9 +30,6 @@ from ...utils.error_helpers import augment_with_capability_tip
 from ..base_engine import ImageEngine
 from ..factory import ModelFactory
 
-# Removed unused tempfile/os imports after refactor
-
-
 settings = get_settings()
 
 SCOPES = [
@@ -40,9 +37,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/cloud-platform",
 ]
 
-# ============================================================================
-# IMAGEN SPECIFIC ENUMS AND CONSTANTS
-# ============================================================================
+# Imagen-specific enums/constants
 
 
 class ImagenErrorType(StrEnum):
@@ -53,28 +48,11 @@ class ImagenErrorType(StrEnum):
     CLIENT_ERROR = "client_error"
 
 
-# ============================================================================
-# VERTEX IMAGEN ENGINE CLASS
-# ============================================================================
+# Vertex Imagen engine
 
 
 class VertexImagen(ImageEngine):
-    """Vertex AI Imagen adapter using the Google Gen AI SDK.
-
-    This adapter provides a clean interface for Google's Imagen models (3.0 and 4.0)
-    via Vertex AI. Key features:
-
-    - Supports Imagen 4 (imagen-4.0-generate-001) and Imagen 3 (imagen-3.0-generate-002)
-    - Uses official Google Gen AI SDK for Vertex AI routing
-    - Returns base64 images extracted from response.generated_images
-    - Handles parameter normalization and error conditions gracefully
-    - Supports both image generation and editing with reference images and masks
-
-    Architecture:
-    - Consistent normalization and metadata structure
-    - Comprehensive capability discovery
-    - Proper SDK client management
-    """
+    """Vertex Imagen adapter for Vertex AI."""
 
     def __init__(self, provider: Provider) -> None:
         super().__init__(provider=provider, name=f"diffusion:{provider.value}")
@@ -134,9 +112,7 @@ class VertexImagen(ImageEngine):
             ],
         )
 
-    # ========================================================================
-    # CLIENT MANAGEMENT
-    # ========================================================================
+    # Client management
 
     def _create_client(self) -> genai.Client:
         """Create Vertex AI client using Google Gen AI SDK."""
@@ -159,9 +135,7 @@ class VertexImagen(ImageEngine):
             error=Error(code=ImagenErrorType.INVALID_CONFIG.value, message=message),
         )
 
-    # ------------------------------------------------------------------
-    # Internal helpers to reduce nesting in `edit`
-    # ------------------------------------------------------------------
+    # Internal helpers for edit
     def _create_base_image(self, image_src: str) -> tuple[types.Image, bytes, str] | ImageResponse:
         """Read image bytes and return a `types.Image` plus the raw bytes and mime type.
 
@@ -226,9 +200,7 @@ class VertexImagen(ImageEngine):
             cfg.negative_prompt = negative_prompt
         return cfg
 
-    # ========================================================================
-    # PARAMETER NORMALIZATION
-    # ========================================================================
+    # Parameter normalization
 
     def _normalize_count(self, req_n: int | None) -> int:
         """Normalize and clamp the count parameter for Imagen."""
@@ -248,9 +220,7 @@ class VertexImagen(ImageEngine):
         else:
             return "1:1"  # Default to square
 
-    # ========================================================================
-    # ERROR HANDLING
-    # ========================================================================
+    # Error handling
 
     def _create_provider_error(self, model: Model, exception: Exception) -> ImageResponse:
         """Create error response for provider API failures."""
@@ -270,9 +240,7 @@ class VertexImagen(ImageEngine):
             error=Error(code=ImagenErrorType.NO_IMAGES.value, message="No image content in response"),
         )
 
-    # ========================================================================
-    # RESPONSE PROCESSING
-    # ========================================================================
+    # Response processing
 
     def _extract_images_from_response(self, response: Any) -> list[ResourceContent]:
         """Extract embedded resources from Vertex AI response."""
@@ -311,13 +279,11 @@ class VertexImagen(ImageEngine):
 
         return images
 
-    # ========================================================================
-    # API OPERATIONS
-    # ========================================================================
+    # API operations
 
     async def generate(self, req: ImageGenerateRequest) -> ImageResponse:
         """Generate images using Imagen via Vertex AI."""
-        model = req.model or Model.IMAGEN_4_STANDARD
+        model = req.model
 
         try:
             client = self._create_client()

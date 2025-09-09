@@ -11,9 +11,7 @@ from ..shard.enums import Model, Provider
 from ..utils.error_helpers import augment_with_capability_tip, EngineResolutionError, ProviderUnavailableError
 from .base_engine import ImageEngine
 
-# ============================================================================
-# MODEL-ENGINE MAPPING CONSTANTS
-# ============================================================================
+# Model-engine mapping constants
 
 # Direct model-to-engine mappings
 MODEL_ENGINE_MAP: dict[Model, type[ImageEngine] | str] = {
@@ -35,7 +33,7 @@ PROVIDER_DEFAULT_ENGINE_MAP: dict[Provider, type[ImageEngine] | str] = {
     Provider.OPENAI: "image_gen_mcp.engines.ar.openai.OpenAIAR",
     Provider.AZURE_OPENAI: "image_gen_mcp.engines.ar.openai.OpenAIAR",
     Provider.GEMINI: "image_gen_mcp.engines.ar.gemini.GeminiAR",
-    Provider.VERTEX: "image_gen_mcp.engines.diffusion.vertex_imagen.VertexImagen",
+    Provider.VERTEX: "image_gen_mcp.engines.ar.gemini.GeminiAR",
     Provider.OPENROUTER: "image_gen_mcp.engines.ar.openrouter.OpenRouterAR",
 }
 
@@ -49,9 +47,7 @@ PROVIDER_MODELS_MAP: dict[Provider, list[Model]] = {
 }
 
 
-# ============================================================================
-# MODEL CAPABILITY DEFINITIONS
-# ============================================================================
+# Model capability definitions
 
 # Models that support image editing
 EDIT_CAPABLE_MODELS: set[Model] = {
@@ -77,9 +73,7 @@ GENERATION_ONLY_MODELS: set[Model] = {
 }
 
 
-# ============================================================================
-# CAPABILITY VALIDATION FUNCTIONS
-# ============================================================================
+# Capability validation functions
 
 
 def _model_supports_editing(model: Model) -> bool:
@@ -106,9 +100,7 @@ def _validate_mask_capability(model: Model, has_mask: bool) -> Error | None:
     return None
 
 
-# ============================================================================
-# INTERNAL RESOLUTION & VALIDATION LOGIC
-# ============================================================================
+# Internal resolution & validation logic
 
 
 def _get_supported_providers_for_model(model: Model) -> list[Provider]:
@@ -193,9 +185,7 @@ def _get_enabled_providers(settings: Settings = get_settings()) -> dict[Provider
     }
 
 
-# ============================================================================
-# PUBLIC API - ModelFactory
-# ============================================================================
+# Public API - ModelFactory
 
 
 class ModelFactory:
@@ -261,23 +251,48 @@ class ModelFactory:
         return _load_engine_class(val)
 
     @classmethod
-    def get_capabilities_for_provider(cls, provider: Provider) -> CapabilityReport | None:
-        """Get capabilities for a single enabled provider."""
+    def get_capabilities_for_provider(cls, provider: Provider) -> list[CapabilityReport]:
+        """Get capabilities for a single enabled provider.
+
+        This will attempt to instantiate every distinct engine class referenced by
+        models that the provider advertises (via `PROVIDER_MODELS_MAP`) and
+        collect each engine's `CapabilityReport`. This ensures we expose multiple
+        engine families (e.g., AR Gemini + Imagen) under the same provider when
+        appropriate.
+        """
         if not cls.get_enabled_providers().get(provider):
             logger.warning(f"Provider {provider.value} is not enabled, skipping capabilities.")
-            return None
+            return []
 
-        engine_class = cls.get_default_engine_class(provider)
-        if not engine_class:
-            logger.warning(f"No engine for provider {provider.value}, skipping capabilities.")
-            return None
+        reports: list[CapabilityReport] = []
 
-        try:
-            engine = engine_class(provider=provider)
-            return engine.get_capability_report()
-        except Exception as e:
-            logger.warning(f"Failed to get capabilities for {provider.value}: {e}")
-            return None
+        # Determine all models this provider claims to support and resolve the
+        # associated engine classes. Use a set to avoid duplicate engine classes.
+        models = PROVIDER_MODELS_MAP.get(provider, [])
+        engine_paths: set[str | type[ImageEngine]] = set()
+        for m in models:
+            val = MODEL_ENGINE_MAP.get(m)
+            if val:
+                engine_paths.add(val)
+
+        # If no specific models are listed, fall back to the provider's default
+        # engine class (keeps previous behavior intact).
+        if not engine_paths:
+            default_cls = cls.get_default_engine_class(provider)
+            if default_cls:
+                engine_paths.add(default_cls)
+
+        for path_or_cls in engine_paths:
+            try:
+                engine_cls = _load_engine_class(path_or_cls)
+                engine = engine_cls(provider=provider)
+                report = engine.get_capability_report()
+                reports.append(report)
+            except Exception as e:
+                logger.warning(f"Failed to get capabilities for engine {path_or_cls} under provider {provider.value}: {e}")
+                continue
+
+        return reports
 
     @classmethod
     def is_combination_supported(cls, provider: Provider, model: Model) -> bool:
