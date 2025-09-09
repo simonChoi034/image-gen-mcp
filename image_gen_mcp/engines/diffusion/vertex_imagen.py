@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import base64
-import io
 from enum import StrEnum
 from typing import Any
 
 from google import genai
 from google.genai import types
 from google.oauth2 import service_account
-from PIL import Image as PILImage
 
 from ...schema import (
     CapabilityReport,
@@ -28,7 +26,9 @@ from ...shard.enums import (
     Orientation,
     Provider,
 )
+from ...utils.error_helpers import augment_with_capability_tip
 from ..base_engine import ImageEngine
+from ..factory import ModelFactory
 
 # Removed unused tempfile/os imports after refactor
 
@@ -89,16 +89,42 @@ class VertexImagen(ImageEngine):
             provider=self.provider,
             family=Family.DIFFUSION,
             models=[
+                # Generation-only Imagen models
                 ModelCapability(
                     model=Model.IMAGEN_4_STANDARD,
                     supports_negative_prompt=True,
                     supports_background=False,
                     max_n=4,
-                    supports_edit=True,
-                    supports_mask=True,
+                    supports_edit=False,
+                    supports_mask=False,
+                ),
+                ModelCapability(
+                    model=Model.IMAGEN_4_FAST,
+                    supports_negative_prompt=True,
+                    supports_background=False,
+                    max_n=4,
+                    supports_edit=False,
+                    supports_mask=False,
+                ),
+                ModelCapability(
+                    model=Model.IMAGEN_4_ULTRA,
+                    supports_negative_prompt=True,
+                    supports_background=False,
+                    max_n=4,
+                    supports_edit=False,
+                    supports_mask=False,
                 ),
                 ModelCapability(
                     model=Model.IMAGEN_3_GENERATE,
+                    supports_negative_prompt=True,
+                    supports_background=False,
+                    max_n=4,
+                    supports_edit=False,
+                    supports_mask=False,
+                ),
+                # Only Imagen model that supports editing
+                ModelCapability(
+                    model=Model.IMAGEN_3_CAPABILITY,
                     supports_negative_prompt=True,
                     supports_background=False,
                     max_n=4,
@@ -123,6 +149,82 @@ class VertexImagen(ImageEngine):
 
         credentials = service_account.Credentials.from_service_account_file(settings.vertex_credentials_path, scopes=SCOPES)
         return genai.Client(vertexai=True, project=settings.vertex_project, location=settings.vertex_location, credentials=credentials)
+
+    def _create_invalid_config_error(self, model: Model, message: str) -> ImageResponse:
+        """Create error response for invalid configuration."""
+        return ImageResponse(
+            ok=False,
+            content=[],
+            model=model,
+            error=Error(code=ImagenErrorType.INVALID_CONFIG.value, message=message),
+        )
+
+    # ------------------------------------------------------------------
+    # Internal helpers to reduce nesting in `edit`
+    # ------------------------------------------------------------------
+    def _create_base_image(self, image_src: str) -> tuple[types.Image, bytes, str] | ImageResponse:
+        """Read image bytes and return a `types.Image` plus the raw bytes and mime type.
+
+        Returns ImageResponse on error to allow early return from caller.
+        """
+        try:
+            image_bytes, image_mime = self.read_image_bytes_and_mime(image_src)
+            base_image = types.Image(image_bytes=image_bytes, mime_type=image_mime)
+            return base_image, image_bytes, image_mime
+        except Exception:
+            return self._create_invalid_config_error(Model.IMAGEN_3_CAPABILITY, "Failed to create Image object from base image for edit")
+
+    def _create_mask_ref(self, mask_src: str | None, fallback_bytes: bytes, fallback_mime: str) -> types.MaskReferenceImage | None:
+        """Create a MaskReferenceImage from provided mask_src or fallback bytes.
+
+        Returns None if creation failed.
+        """
+        try:
+            if mask_src:
+                mask_bytes, mask_mime = self.read_image_bytes_and_mime(mask_src)
+            else:
+                mask_bytes, mask_mime = fallback_bytes, fallback_mime
+
+            mask_image = types.Image(image_bytes=mask_bytes, mime_type=mask_mime)
+            return types.MaskReferenceImage(
+                reference_id=2,
+                reference_image=mask_image,
+                config=types.MaskReferenceConfig(
+                    mask_mode=types.MaskReferenceMode.MASK_MODE_FOREGROUND,
+                    mask_dilation=0,
+                ),
+            )
+        except Exception:
+            return None
+
+    def _build_reference_images(self, image_src: str, mask_src: str | None) -> tuple[list[Any], ImageResponse | None]:
+        """Build RawReferenceImage and optional MaskReferenceImage list.
+
+        Returns a tuple of (reference_images, ImageResponse) where ImageResponse
+        is non-None when an early error occurred (so caller can return it).
+        """
+        base_result = self._create_base_image(image_src)
+        if isinstance(base_result, ImageResponse):
+            return [], base_result
+        base_image, image_bytes, image_mime = base_result
+
+        refs: list[Any] = [types.RawReferenceImage(reference_id=1, reference_image=base_image)]
+        mask_ref = self._create_mask_ref(mask_src, image_bytes, image_mime)
+        if mask_ref:
+            refs.append(mask_ref)
+        return refs, None
+
+    def _build_edit_config(self, n: int, aspect_ratio: str, negative_prompt: str | None) -> types.EditImageConfig:
+        cfg = types.EditImageConfig(
+            edit_mode=types.EditMode.EDIT_MODE_INPAINT_INSERTION,
+            number_of_images=n,
+            aspect_ratio=aspect_ratio,
+            include_rai_reason=True,
+            output_mime_type="image/png",
+        )
+        if negative_prompt:
+            cfg.negative_prompt = negative_prompt
+        return cfg
 
     # ========================================================================
     # PARAMETER NORMALIZATION
@@ -152,8 +254,6 @@ class VertexImagen(ImageEngine):
 
     def _create_provider_error(self, model: Model, exception: Exception) -> ImageResponse:
         """Create error response for provider API failures."""
-        from ...utils.error_helpers import augment_with_capability_tip
-
         return ImageResponse(
             ok=False,
             content=[],
@@ -168,15 +268,6 @@ class VertexImagen(ImageEngine):
             content=[],
             model=model,
             error=Error(code=ImagenErrorType.NO_IMAGES.value, message="No image content in response"),
-        )
-
-    def _create_invalid_config_error(self, model: Model, message: str) -> ImageResponse:
-        """Create error response for invalid configuration."""
-        return ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code=ImagenErrorType.INVALID_CONFIG.value, message=message),
         )
 
     # ========================================================================
@@ -268,7 +359,12 @@ class VertexImagen(ImageEngine):
 
     async def edit(self, req: ImageEditRequest) -> ImageResponse:
         """Edit images using Imagen via Vertex AI with reference images and optional masks."""
-        model = req.model or Model.IMAGEN_4_STANDARD
+        model = req.model
+
+        # Validation is performed after we determine whether a mask will be
+        # supplied or a fallback mask is created (so models that require a
+        # mask pass validation when we generate a fallback mask from the
+        # original image).
 
         try:
             # Validate required input image
@@ -279,58 +375,30 @@ class VertexImagen(ImageEngine):
             if not image_src:
                 return self._create_invalid_config_error(model, "images[0] is required for edit")
 
+            # Early validation - check if model supports editing at all
+            validation_error = ModelFactory.validate_edit_request(model, has_mask=False)
+            if validation_error:
+                return ImageResponse(ok=False, content=[], model=model, error=validation_error)
+
             client = self._create_client()
 
             # Normalize parameters
             n = self._normalize_count(req.n)
             aspect_ratio = self._map_aspect_ratio(req.orientation)
 
-            # Read the base image (PNG/JPEG/etc) and construct PIL image; the SDK accepts PIL images.
-            image_bytes, image_mime = self.read_image_bytes_and_mime(image_src)
-            try:
-                base_pil = PILImage.open(io.BytesIO(image_bytes))
-            except Exception:  # pragma: no cover
-                return self._create_invalid_config_error(model, "Failed to decode base image bytes for edit")
+            # Build reference images (base + optional mask) - helper handles early errors
+            reference_images, err = self._build_reference_images(image_src, req.mask)
+            if err:
+                return err
 
-            reference_images: list[Any] = [
-                types.RawReferenceImage(
-                    reference_id=1,
-                    reference_image=base_pil,  # type: ignore[arg-type] - PIL image accepted at runtime
-                )
-            ]
+            # Final validation - check masking capability if mask is present
+            if req.mask and not ModelFactory.model_supports_masking(model):
+                validation_error = ModelFactory.validate_edit_request(model, has_mask=True)
+                if validation_error:
+                    return ImageResponse(ok=False, content=[], model=model, error=validation_error)
 
-            # Optional user-supplied mask handling; treat provided mask as foreground region to modify.
-            if req.mask:
-                mask_bytes, mask_mime = self.read_image_bytes_and_mime(req.mask)
-                try:
-                    mask_pil = PILImage.open(io.BytesIO(mask_bytes))
-                except Exception:  # pragma: no cover
-                    return self._create_invalid_config_error(model, "Failed to decode mask image bytes for edit")
-
-                mask_ref_image = types.MaskReferenceImage(
-                    reference_id=2,
-                    reference_image=mask_pil,  # type: ignore[arg-type]
-                    config=types.MaskReferenceConfig(
-                        mask_mode=types.MaskReferenceMode.MASK_MODE_FOREGROUND,
-                        mask_dilation=0,
-                    ),
-                )
-                reference_images.append(mask_ref_image)
-
-            # Build edit config
-            edit_config = types.EditImageConfig(
-                edit_mode=types.EditMode.EDIT_MODE_INPAINT_INSERTION,
-                number_of_images=n,
-                aspect_ratio=aspect_ratio,
-                include_rai_reason=True,
-                output_mime_type="image/png",
-            )
-
-            # Add negative prompt if provided
-            if req.negative_prompt:
-                edit_config.negative_prompt = req.negative_prompt
-
-            # Call edit_image API
+            # Build edit config and call API
+            edit_config = self._build_edit_config(n, aspect_ratio, req.negative_prompt)
             response = await client.aio.models.edit_image(
                 model=str(model),
                 prompt=req.prompt,

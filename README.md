@@ -201,6 +201,7 @@ Create one or more images from a text prompt.
 | `quality` | enum | Optional. `draft` \| `standard` \| `high`. |
 | `background` | enum | Optional. `transparent` \| `opaque` (when supported). |
 | `negative_prompt` | str | Optional. Used when provider supports it. |
+| `directory` | str | Optional. Filesystem directory where the server should save generated images. If omitted a unique temp directory is used. |
 
 ---
 
@@ -235,6 +236,7 @@ Edit an image with a prompt and optional mask.
 | `quality` | enum | Optional. `draft` \| `standard` \| `high`. |
 | `background` | enum | Optional. `transparent` \| `opaque`. |
 | `negative_prompt` | str | Optional. Negative prompt. |
+| `directory` | str | Optional. Filesystem directory where the server should save edited images. If omitted a unique temp directory is used. |
 
 ---
 
@@ -265,8 +267,11 @@ Routing is handled by a `ModelFactory` that maps model → engine. A compact, cu
 | `gpt-image-1` | AR | `openai`, `azure` | ✅ | ✅ | ✅ (OpenAI/Azure) |
 | `dall-e-3` | Diffusion | `openai`, `azure` | ✅ | ❌ | — |
 | `gemini-2.5-flash-image-preview` | AR | `gemini`, `vertex` | ✅ | ✅ (maskless) | ❌ |
-| `imagen-4.0-generate-001` | Diffusion | `vertex` | ✅ | ❌ (planned) | — |
-| `imagen-3.0-generate-002` | Diffusion | `vertex` | ✅ | ❌ (planned) | — |
+| `imagen-4.0-generate-001` | Diffusion | `vertex` | ✅ | ❌ | — |
+| `imagen-3.0-generate-002` | Diffusion | `vertex` | ✅ | ❌ | — |
+| `imagen-4.0-fast-generate-001` | Diffusion | `vertex` | ✅ | ❌ | — |
+| `imagen-4.0-ultra-generate-001` | Diffusion | `vertex` | ✅ | ❌ | — |
+| `imagen-3.0-capability-001` | Diffusion | `vertex` | ✅ | ✅ | ✅ (mask via mask config) |
 | `google/gemini-2.5-flash-image-preview` | AR | `openrouter` | ✅ | ✅ (maskless) | ❌ |
 
 ### Provider Model Support

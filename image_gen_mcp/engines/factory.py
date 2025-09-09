@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+
 from loguru import logger
 
 from ..schema import CapabilityReport, Error, ImageResponse
@@ -7,46 +9,101 @@ from ..settings import get_settings, Settings
 from ..shard import constants as C
 from ..shard.enums import Model, Provider
 from ..utils.error_helpers import augment_with_capability_tip, EngineResolutionError, ProviderUnavailableError
-from .ar.gemini import GeminiAR
-from .ar.openai import OpenAIAR
-from .ar.openrouter import OpenRouterAR
 from .base_engine import ImageEngine
-from .diffusion.dalle_diffusion import DalleDiffusion
-from .diffusion.vertex_imagen import VertexImagen
 
 # ============================================================================
 # MODEL-ENGINE MAPPING CONSTANTS
 # ============================================================================
 
 # Direct model-to-engine mappings
-MODEL_ENGINE_MAP: dict[Model, type[ImageEngine]] = {
-    # AR Models
-    Model.GPT_IMAGE_1: OpenAIAR,
-    Model.GEMINI_IMAGE_PREVIEW: GeminiAR,
-    Model.OPENROUTER_GOOGLE_GEMINI_IMAGE: OpenRouterAR,
+MODEL_ENGINE_MAP: dict[Model, type[ImageEngine] | str] = {
+    # AR Models - store import paths to avoid circular imports at module import time
+    Model.GPT_IMAGE_1: "image_gen_mcp.engines.ar.openai.OpenAIAR",
+    Model.GEMINI_IMAGE_PREVIEW: "image_gen_mcp.engines.ar.gemini.GeminiAR",
+    Model.OPENROUTER_GOOGLE_GEMINI_IMAGE: "image_gen_mcp.engines.ar.openrouter.OpenRouterAR",
     # Diffusion Models
-    Model.DALL_E_3: DalleDiffusion,
-    Model.IMAGEN_4_STANDARD: VertexImagen,
-    Model.IMAGEN_3_GENERATE: VertexImagen,
+    Model.DALL_E_3: "image_gen_mcp.engines.diffusion.dalle_diffusion.DalleDiffusion",
+    Model.IMAGEN_4_STANDARD: "image_gen_mcp.engines.diffusion.vertex_imagen.VertexImagen",
+    Model.IMAGEN_4_FAST: "image_gen_mcp.engines.diffusion.vertex_imagen.VertexImagen",
+    Model.IMAGEN_4_ULTRA: "image_gen_mcp.engines.diffusion.vertex_imagen.VertexImagen",
+    Model.IMAGEN_3_GENERATE: "image_gen_mcp.engines.diffusion.vertex_imagen.VertexImagen",
+    Model.IMAGEN_3_CAPABILITY: "image_gen_mcp.engines.diffusion.vertex_imagen.VertexImagen",
 }
 
 # Provider-to-default-engine mappings (when model is not specified)
-PROVIDER_DEFAULT_ENGINE_MAP: dict[Provider, type[ImageEngine]] = {
-    Provider.OPENAI: OpenAIAR,
-    Provider.AZURE_OPENAI: OpenAIAR,
-    Provider.GEMINI: GeminiAR,
-    Provider.VERTEX: VertexImagen,
-    Provider.OPENROUTER: OpenRouterAR,
+PROVIDER_DEFAULT_ENGINE_MAP: dict[Provider, type[ImageEngine] | str] = {
+    Provider.OPENAI: "image_gen_mcp.engines.ar.openai.OpenAIAR",
+    Provider.AZURE_OPENAI: "image_gen_mcp.engines.ar.openai.OpenAIAR",
+    Provider.GEMINI: "image_gen_mcp.engines.ar.gemini.GeminiAR",
+    Provider.VERTEX: "image_gen_mcp.engines.diffusion.vertex_imagen.VertexImagen",
+    Provider.OPENROUTER: "image_gen_mcp.engines.ar.openrouter.OpenRouterAR",
 }
 
 # Provider-to-supported-models mappings
 PROVIDER_MODELS_MAP: dict[Provider, list[Model]] = {
     Provider.OPENAI: [Model.GPT_IMAGE_1, Model.DALL_E_3],
     Provider.AZURE_OPENAI: [Model.GPT_IMAGE_1, Model.DALL_E_3],
-    Provider.VERTEX: [Model.IMAGEN_4_STANDARD, Model.IMAGEN_3_GENERATE, Model.GEMINI_IMAGE_PREVIEW],
+    Provider.VERTEX: [Model.IMAGEN_4_STANDARD, Model.IMAGEN_4_FAST, Model.IMAGEN_4_ULTRA, Model.IMAGEN_3_GENERATE, Model.IMAGEN_3_CAPABILITY, Model.GEMINI_IMAGE_PREVIEW],
     Provider.GEMINI: [Model.GEMINI_IMAGE_PREVIEW],
     Provider.OPENROUTER: [Model.OPENROUTER_GOOGLE_GEMINI_IMAGE],
 }
+
+
+# ============================================================================
+# MODEL CAPABILITY DEFINITIONS
+# ============================================================================
+
+# Models that support image editing
+EDIT_CAPABLE_MODELS: set[Model] = {
+    Model.GPT_IMAGE_1,  # OpenAI AR
+    Model.GEMINI_IMAGE_PREVIEW,  # Gemini AR (maskless)
+    Model.OPENROUTER_GOOGLE_GEMINI_IMAGE,  # OpenRouter Gemini AR (maskless)
+    Model.IMAGEN_3_CAPABILITY,  # Only Imagen model that supports editing
+}
+
+# Models that support masking during editing
+MASK_CAPABLE_MODELS: set[Model] = {
+    Model.GPT_IMAGE_1,  # OpenAI AR
+    Model.IMAGEN_3_CAPABILITY,  # Imagen with mask config support
+}
+
+# Models that only support generation (no editing)
+GENERATION_ONLY_MODELS: set[Model] = {
+    Model.DALL_E_3,
+    Model.IMAGEN_4_STANDARD,
+    Model.IMAGEN_4_FAST,
+    Model.IMAGEN_4_ULTRA,
+    Model.IMAGEN_3_GENERATE,
+}
+
+
+# ============================================================================
+# CAPABILITY VALIDATION FUNCTIONS
+# ============================================================================
+
+
+def _model_supports_editing(model: Model) -> bool:
+    """Check if a model supports image editing operations."""
+    return model in EDIT_CAPABLE_MODELS
+
+
+def _model_supports_masking(model: Model) -> bool:
+    """Check if a model supports masking during editing."""
+    return model in MASK_CAPABLE_MODELS
+
+
+def _validate_edit_capability(model: Model) -> Error | None:
+    """Validate if a model supports editing. Returns Error if not supported, None if valid."""
+    if not _model_supports_editing(model):
+        return Error(code="unsupported_operation", message=f"Model {model.value} does not support image editing. Only {', '.join(m.value for m in EDIT_CAPABLE_MODELS)} support editing.")
+    return None
+
+
+def _validate_mask_capability(model: Model, has_mask: bool) -> Error | None:
+    """Validate if a model supports masking when a mask is provided. Returns Error if not supported, None if valid."""
+    if has_mask and not _model_supports_masking(model):
+        return Error(code="unsupported_operation", message=f"Model {model.value} does not support masking. Models with mask support: {', '.join(m.value for m in MASK_CAPABLE_MODELS)}")
+    return None
 
 
 # ============================================================================
@@ -57,6 +114,20 @@ PROVIDER_MODELS_MAP: dict[Provider, list[Model]] = {
 def _get_supported_providers_for_model(model: Model) -> list[Provider]:
     """Get list of providers that support a model."""
     return [provider for provider, models in PROVIDER_MODELS_MAP.items() if model in models]
+
+
+def _load_engine_class(path_or_cls: type[ImageEngine] | str) -> type[ImageEngine]:
+    """Resolve an engine class from either a direct class or an import path string.
+
+    If a string is provided, import and return the class. Cache back into
+    the mapping callers supply to avoid repeated imports.
+    """
+    if isinstance(path_or_cls, str):
+        module_path, class_name = path_or_cls.rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        cls = getattr(module, class_name)
+        return cls
+    return path_or_cls
 
 
 def _create_resolution_error_message(provider: Provider | None, model: Model | None) -> str:
@@ -99,6 +170,9 @@ def _resolve_engine_spec(provider: Provider | None, model: Model | None) -> tupl
     engine_class = MODEL_ENGINE_MAP.get(model)
     if not engine_class:
         raise EngineResolutionError(_create_resolution_error_message(provider, model))
+
+    # Resolve lazy import if needed
+    engine_class = _load_engine_class(engine_class)
 
     supported_providers = _get_supported_providers_for_model(model)
     if provider not in supported_providers:
@@ -181,7 +255,10 @@ class ModelFactory:
     @classmethod
     def get_default_engine_class(cls, provider: Provider) -> type[ImageEngine] | None:
         """Get the engine class for a given provider."""
-        return PROVIDER_DEFAULT_ENGINE_MAP.get(provider)
+        val = PROVIDER_DEFAULT_ENGINE_MAP.get(provider)
+        if not val:
+            return None
+        return _load_engine_class(val)
 
     @classmethod
     def get_capabilities_for_provider(cls, provider: Provider) -> CapabilityReport | None:
@@ -216,6 +293,34 @@ class ModelFactory:
     def is_provider_enabled(cls, provider: Provider) -> bool:
         """Check if a provider is enabled (has required credentials)."""
         return _get_enabled_providers().get(provider, False)
+
+    @classmethod
+    def validate_edit_request(cls, model: Model, has_mask: bool = False) -> Error | None:
+        """
+        Validate if a model supports editing operations and optional masking.
+        Returns Error if validation fails, None if valid.
+        """
+        # Check if model supports editing at all
+        edit_error = _validate_edit_capability(model)
+        if edit_error:
+            return edit_error
+
+        # Check masking capability if a mask is provided
+        mask_error = _validate_mask_capability(model, has_mask)
+        if mask_error:
+            return mask_error
+
+        return None
+
+    @classmethod
+    def model_supports_editing(cls, model: Model) -> bool:
+        """Check if a model supports image editing operations."""
+        return _model_supports_editing(model)
+
+    @classmethod
+    def model_supports_masking(cls, model: Model) -> bool:
+        """Check if a model supports masking during editing."""
+        return _model_supports_masking(model)
 
 
 __all__ = ["ModelFactory"]

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import base64
-import logging
 from enum import StrEnum
 from functools import lru_cache
 from typing import Any
 
 from google import genai as genai_sdk  # type: ignore
 from google.genai.types import GenerateContentResponse, Part
+from loguru import logger
 
 from ...schema import (
     CapabilityReport,
@@ -33,7 +33,6 @@ from ...shard.enums import (
 from ...utils.prompt import render_prompt_with_guidance
 from ..base_engine import ImageEngine
 
-logger = logging.getLogger(__name__)
 settings = get_settings()
 
 

@@ -49,3 +49,9 @@
 - The `provider` and `model` parameters are required for `generate_image` and `edit_image`.
 - Use `get_model_capabilities` to discover available providers and models before calling generation or editing tools.
 - Prefer provider/model-agnostic fields where possible.
+
+## Additional notes about saving images to disk
+
+- Both `generate_image` and `edit_image` accept an optional `directory` parameter (string). If provided, the server will attempt to save generated/edited images to that directory (creating it if necessary). If omitted, the server creates a unique temporary directory under the system tempdir (e.g., `/tmp`) and saves images there.
+- Each image descriptor in the structured tool response now includes a `file_path` field containing the absolute filesystem path where that image was saved. Clients and agents can use this path to access or reference the saved image.
+- The server does not automatically delete saved files. Clients are responsible for cleanup when appropriate.

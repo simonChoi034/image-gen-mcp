@@ -29,21 +29,21 @@ def test_vertex_imagen_capabilities():
     caps = engine.get_capability_report()
 
     assert caps.provider == Provider.VERTEX
-    assert len(caps.models) == 2
+    assert len(caps.models) == 5  # Now we have 5 Imagen models
 
-    # Check Imagen 4 capabilities
+    # Check generation-only models don't support editing
     imagen_4 = next(m for m in caps.models if m.model == Model.IMAGEN_4_STANDARD)
-    assert imagen_4.supports_edit is True
-    assert imagen_4.supports_mask is True
+    assert imagen_4.supports_edit is False
+    assert imagen_4.supports_mask is False
     assert imagen_4.supports_negative_prompt is True
     assert imagen_4.max_n == 4
 
-    # Check Imagen 3 capabilities
-    imagen_3 = next(m for m in caps.models if m.model == Model.IMAGEN_3_GENERATE)
-    assert imagen_3.supports_edit is True
-    assert imagen_3.supports_mask is True
-    assert imagen_3.supports_negative_prompt is True
-    assert imagen_3.max_n == 4
+    # Check that only imagen-3.0-capability-001 supports editing
+    imagen_3_capability = next(m for m in caps.models if m.model == Model.IMAGEN_3_CAPABILITY)
+    assert imagen_3_capability.supports_edit is True
+    assert imagen_3_capability.supports_mask is True
+    assert imagen_3_capability.supports_negative_prompt is True
+    assert imagen_3_capability.max_n == 4
 
 
 def test_image_utils_inheritance():
@@ -62,25 +62,21 @@ def test_image_utils_inheritance():
         os.remove(path)
 
 
-@patch("google.genai.types.RawReferenceImage")
-@patch("google.genai.types.MaskReferenceImage")
-@patch("google.genai.types.EditImageConfig")
+@patch("google.oauth2.service_account.Credentials.from_service_account_file")
 @patch("google.genai.Client")
 @patch("PIL.Image.open")
-async def test_edit_with_base_image(mock_pil_open, mock_client_class, mock_edit_config, mock_mask_ref, mock_raw_ref):
+async def test_edit_with_base_image(mock_pil_open, mock_client_class, mock_credentials):
     """Test edit method with base image (no mask)."""
     # Setup mocks
     mock_client = MagicMock()
     mock_client_class.return_value = mock_client
+    mock_credentials.return_value = MagicMock()  # Mock service account credentials
 
     # Mock PIL image
     mock_pil_image = MagicMock()
     mock_pil_open.return_value = mock_pil_image
 
-    # Mock types
-    mock_raw_ref.return_value = MagicMock()
-    mock_mask_ref.return_value = MagicMock()
-    mock_edit_config.return_value = MagicMock()
+    # No need to mock types - let them work naturally
 
     # Mock response with generated_images
     mock_response = MagicMock()
@@ -102,15 +98,15 @@ async def test_edit_with_base_image(mock_pil_open, mock_client_class, mock_edit_
         # Create test image
         test_image = _make_temp_png()
         try:
-            # Create edit request
-            req = ImageEditRequest(prompt="Edit this image", images=[test_image], provider=Provider.VERTEX, model=Model.IMAGEN_4_STANDARD, n=1)
+            # Create edit request using model that supports editing
+            req = ImageEditRequest(prompt="Edit this image", images=[test_image], provider=Provider.VERTEX, model=Model.IMAGEN_3_CAPABILITY, n=1)
 
             # Call edit method
             response = await engine.edit(req)
 
             # Verify response
             assert response.ok is True
-            assert response.model == Model.IMAGEN_4_STANDARD
+            assert response.model == Model.IMAGEN_3_CAPABILITY
             assert len(response.content) == 1
             assert response.content[0].type == "resource"
             # Engine now returns PNG images (output_mime_type set to image/png)
@@ -121,34 +117,31 @@ async def test_edit_with_base_image(mock_pil_open, mock_client_class, mock_edit_
 
             # Verify the call arguments
             call_args = mock_client.aio.models.edit_image.call_args
-            assert call_args[1]["model"] == str(Model.IMAGEN_4_STANDARD)
+            assert call_args[1]["model"] == str(Model.IMAGEN_3_CAPABILITY)
             assert call_args[1]["prompt"] == "Edit this image"
-            assert len(call_args[1]["reference_images"]) == 1  # base image only
+            # With fallback mask behavior, we now have 2 reference images: base + fallback mask
+            assert len(call_args[1]["reference_images"]) == 2
 
         finally:
             os.remove(test_image)
 
 
-@patch("google.genai.types.RawReferenceImage")
-@patch("google.genai.types.MaskReferenceImage")
-@patch("google.genai.types.EditImageConfig")
+@patch("google.oauth2.service_account.Credentials.from_service_account_file")
 @patch("google.genai.Client")
 @patch("PIL.Image.open")
-async def test_edit_with_mask(mock_pil_open, mock_client_class, mock_edit_config, mock_mask_ref, mock_raw_ref):
+async def test_edit_with_mask(mock_pil_open, mock_client_class, mock_credentials):
     """Test edit method with base image and mask."""
     # Setup mocks
     mock_client = MagicMock()
     mock_client_class.return_value = mock_client
+    mock_credentials.return_value = MagicMock()  # Mock service account credentials
 
     # Mock PIL images
     mock_pil_image = MagicMock()
     mock_mask_image = MagicMock()
     mock_pil_open.side_effect = [mock_pil_image, mock_mask_image]
 
-    # Mock types
-    mock_raw_ref.return_value = MagicMock()
-    mock_mask_ref.return_value = MagicMock()
-    mock_edit_config.return_value = MagicMock()
+    # No need to mock types - let them work naturally
 
     # Mock response with generated_images
     mock_response = MagicMock()
@@ -171,15 +164,15 @@ async def test_edit_with_mask(mock_pil_open, mock_client_class, mock_edit_config
         test_image = _make_temp_png()
         test_mask = _make_temp_png()
         try:
-            # Create edit request with mask
-            req = ImageEditRequest(prompt="Edit this image with mask", images=[test_image], mask=test_mask, provider=Provider.VERTEX, model=Model.IMAGEN_4_STANDARD, n=1)
+            # Create edit request with mask using model that supports editing and masking
+            req = ImageEditRequest(prompt="Edit this image with mask", images=[test_image], mask=test_mask, provider=Provider.VERTEX, model=Model.IMAGEN_3_CAPABILITY, n=1)
 
             # Call edit method
             response = await engine.edit(req)
 
             # Verify response
             assert response.ok is True
-            assert response.model == Model.IMAGEN_4_STANDARD
+            assert response.model == Model.IMAGEN_3_CAPABILITY
             assert len(response.content) == 1
 
             # Verify SDK was called correctly
@@ -187,7 +180,7 @@ async def test_edit_with_mask(mock_pil_open, mock_client_class, mock_edit_config
 
             # Verify the call arguments
             call_args = mock_client.aio.models.edit_image.call_args
-            assert call_args[1]["model"] == str(Model.IMAGEN_4_STANDARD)
+            assert call_args[1]["model"] == str(Model.IMAGEN_3_CAPABILITY)
             assert call_args[1]["prompt"] == "Edit this image with mask"
             assert len(call_args[1]["reference_images"]) == 2  # base image + mask
 
@@ -204,8 +197,32 @@ async def test_edit_missing_image():
             prompt="Edit this image",
             images=[],  # Empty images list
             provider=Provider.VERTEX,
-            model=Model.IMAGEN_4_STANDARD,
+            model=Model.IMAGEN_3_CAPABILITY,
         )
 
     # Verify it's a validation error
     assert "images must contain at least one item" in str(exc_info.value)
+
+
+async def test_edit_unsupported_model():
+    """Test edit method properly rejects models that don't support editing."""
+    engine = VertexImagen(provider=Provider.VERTEX)
+
+    # Create test image
+    test_image = _make_temp_png()
+    try:
+        # Create edit request with generation-only model
+        req = ImageEditRequest(prompt="Edit this image", images=[test_image], provider=Provider.VERTEX, model=Model.IMAGEN_4_STANDARD, n=1)  # This model doesn't support editing
+
+        # Call edit method
+        response = await engine.edit(req)
+
+        # Verify response is an error
+        assert response.ok is False
+        assert response.error is not None
+        assert response.error.code == "unsupported_operation"
+        assert "does not support image editing" in response.error.message
+        assert "imagen-3.0-capability-001" in response.error.message
+
+    finally:
+        os.remove(test_image)
