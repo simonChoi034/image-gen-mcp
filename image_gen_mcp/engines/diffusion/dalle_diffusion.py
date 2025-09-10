@@ -117,7 +117,7 @@ class DalleDiffusion(ImageEngine):
             api_version=settings.azure_openai_api_version or API_VERSION_DEFAULT,
         )
 
-    def _get_client(self) -> Any:
+    def _get_client(self) -> AsyncAzureOpenAI | AsyncOpenAI:
         if self.provider == Provider.AZURE_OPENAI:
             return self._azure_client()
         return self._openai_client()
