@@ -527,6 +527,7 @@ dev = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "pyright" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "uv-dynamic-versioning" },
@@ -554,6 +555,7 @@ provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "pyright", specifier = ">=1.1.405" },
     { name = "pytest-asyncio", specifier = ">=1.1.0" },
     { name = "pytest-cov", specifier = ">=6.3.0" },
     { name = "uv-dynamic-versioning", specifier = ">=0.11.0" },
