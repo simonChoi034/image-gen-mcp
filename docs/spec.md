@@ -49,7 +49,7 @@ The MCP server uses credential-only environment variables:
 
 - Provider credentials/endpoints:
   - `OPENAI_API_KEY`
-  - `AZURE_OPENAI_KEY`, `AZURE_OPENAI_ENDPOINT` (and optional `AZURE_OPENAI_API_VERSION`)
+  - `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT` (and optional `AZURE_OPENAI_API_VERSION`)
   - `VERTEX_PROJECT`, `VERTEX_LOCATION` (optional `VERTEX_CREDENTIALS_PATH`)
   - `GEMINI_API_KEY`
   - `OPENROUTER_API_KEY`

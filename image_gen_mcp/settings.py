@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = Field(default=None, description="API key for OpenAI")
 
-    azure_openai_key: str | None = Field(default=None, description="API key for Azure OpenAI")
+    azure_openai_api_key: str | None = Field(default=None, description="API key for Azure OpenAI")
     azure_openai_endpoint: str | None = Field(default=None, description="Endpoint for Azure OpenAI")
     azure_openai_api_version: str | None = Field(default="2025-04-01-preview", description="API version for Azure OpenAI")
 
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     @property
     def use_azure_openai(self) -> bool:
         """Determine if Azure OpenAI should be used based on available credentials."""
-        return bool(self.azure_openai_key and self.azure_openai_endpoint)
+        return bool(self.azure_openai_api_key and self.azure_openai_endpoint)
 
     @property
     def use_gemini(self) -> bool:

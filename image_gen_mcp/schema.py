@@ -71,6 +71,10 @@ class ModelCapability(BaseModel):
     max_n: int | None = Field(default=None, description="Maximum images per request for this model (omit if shared).")
     supports_edit: bool | None = Field(default=None, description="Whether edit operations are supported for this model (omit if shared).")
     supports_mask: bool | None = Field(default=None, description="Whether masking is supported during edit (omit if shared).")
+    supports_multi_image_edit: bool | None = Field(
+        default=None,
+        description="Whether multiple input images are supported during edit (omit if shared).",
+    )
 
 
 class CapabilityReport(BaseModel):
