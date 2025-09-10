@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     azure_openai_key: str | None = Field(default=None, description="API key for Azure OpenAI")
     azure_openai_endpoint: str | None = Field(default=None, description="Endpoint for Azure OpenAI")
-    azure_openai_api_version: str | None = Field(default="2024-02-15-preview", description="API version for Azure OpenAI")
+    azure_openai_api_version: str | None = Field(default="2025-04-01-preview", description="API version for Azure OpenAI")
 
     gemini_api_key: str | None = Field(default=None, description="API key for Google Gemini")
 

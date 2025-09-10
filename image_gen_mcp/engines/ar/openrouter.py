@@ -3,6 +3,8 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
+from openai import OpenAI
+
 from ...schema import (
     CapabilityReport,
     EmbeddedResource,
@@ -75,15 +77,8 @@ class OpenRouterAR(ImageEngine):
     response parsing and error handling for image generation and editing.
     """
 
-    def __init__(self, provider: Provider = Provider.OPENROUTER) -> None:
-        super().__init__(provider=provider, name="ar:openrouter")
-        # Try to import AsyncOpenAI at runtime to avoid hard dependency at import time.
-        try:  # pragma: no cover - import time feature detection
-            from openai import AsyncOpenAI as _AsyncOpenAI  # type: ignore
-
-            self._AsyncOpenAI = _AsyncOpenAI  # type: ignore[attr-defined]
-        except Exception:  # pragma: no cover - SDK not installed
-            self._AsyncOpenAI = None  # type: ignore[attr-defined]
+    def __init__(self, provider: Provider) -> None:
+        super().__init__(provider=provider, name=f"ar:{provider.value}")
 
     # Capability discovery
     def get_capability_report(self) -> CapabilityReport:
@@ -165,14 +160,11 @@ class OpenRouterAR(ImageEngine):
     # HTTP client operations
     def _client(self):
         """Return configured AsyncOpenAI client routed to OpenRouter base URL."""
-        if getattr(self, "_AsyncOpenAI", None) is None:  # pragma: no cover
-            raise RuntimeError("openai AsyncOpenAI SDK is required but not installed")
         if not settings.openrouter_api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable must be set to use OpenRouter provider")
-        return self._AsyncOpenAI(  # type: ignore[operator]
+        return OpenAI(
             base_url=OpenRouterEndpoint.BASE.value,
             api_key=settings.openrouter_api_key,
-            timeout=30.0,
         )
 
     def _build_payload(self, model: Model, prompt: str, n: int) -> dict[str, Any]:

@@ -3,6 +3,8 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
+from openai import AsyncAzureOpenAI, AsyncOpenAI
+
 from ...schema import (
     CapabilityReport,
     EmbeddedResource,
@@ -61,16 +63,7 @@ class DalleErrorType(StrEnum):
 
 
 # Default API version for Azure OpenAI
-API_VERSION_DEFAULT = "2024-02-15-preview"
-
-# Try to import OpenAI SDK classes. Fallback gracefully if unavailable.
-try:  # pragma: no cover - import-time feature detection
-    from openai import AzureOpenAI as AzureOpenAIClient  # type: ignore
-    from openai import OpenAI as OpenAIClient  # type: ignore
-except Exception:  # pragma: no cover - if the SDK isn't present
-    OpenAIClient = None  # type: ignore
-    AzureOpenAIClient = None  # type: ignore
-# DALL·E engine
+API_VERSION_DEFAULT = "2025-04-01-preview"
 
 
 class DalleDiffusion(ImageEngine):
@@ -108,23 +101,26 @@ class DalleDiffusion(ImageEngine):
             return req_provider
         return self.provider
 
-    def _openai_client(self) -> Any:
-        """Create OpenAI client instance."""
-        if OpenAIClient is None:  # pragma: no cover
-            raise RuntimeError("openai package is required but not installed")
-        return OpenAIClient(api_key=settings.openai_api_key)
+    def _openai_client(self) -> AsyncOpenAI:
+        if not settings.openai_api_key:
+            raise ValueError("OPENAI_API_KEY environment variable must be set to use OpenAI provider")
+        return AsyncOpenAI(api_key=settings.openai_api_key)
 
-    def _azure_client(self) -> Any:
-        """Create Azure OpenAI client instance."""
-        if AzureOpenAIClient is None:  # pragma: no cover
-            raise RuntimeError("openai package with AzureOpenAI is required but not installed")
+    def _azure_client(self) -> AsyncAzureOpenAI:
         if not settings.azure_openai_endpoint:
-            raise ValueError("AZURE_OPENAI_ENDPOINT must be set to use Azure OpenAI")
-        return AzureOpenAIClient(
+            raise ValueError("AZURE_OPENAI_ENDPOINT environment variable must be set to use Azure OpenAI")
+        if not settings.azure_openai_key:
+            raise ValueError("AZURE_OPENAI_KEY environment variable must be set to use Azure OpenAI")
+        return AsyncAzureOpenAI(
             api_key=settings.azure_openai_key,
             azure_endpoint=settings.azure_openai_endpoint,
             api_version=settings.azure_openai_api_version or API_VERSION_DEFAULT,
         )
+
+    def _get_client(self) -> AsyncAzureOpenAI | AsyncOpenAI:
+        if self.provider == Provider.AZURE_OPENAI:
+            return self._azure_client()
+        return self._openai_client()
 
     # Parameter normalization
     def _normalize_count(self, req_n: int | None) -> tuple[int, dict[str, Any]]:
@@ -219,7 +215,7 @@ class DalleDiffusion(ImageEngine):
         return images
 
     # API operations
-    def generate(self, req: ImageGenerateRequest) -> ImageResponse:  # type: ignore[override]
+    async def generate(self, req: ImageGenerateRequest) -> ImageResponse:  # type: ignore[override]
         """Generate images using DALL·E 3 via OpenAI or Azure OpenAI."""
         provider = self._select_provider(getattr(req, "provider", None))
         model = req.model
@@ -234,13 +230,11 @@ class DalleDiffusion(ImageEngine):
         want_b64 = response_format == DalleResponseFormat.B64_JSON.value
 
         try:
-            if provider == Provider.AZURE_OPENAI:
-                client = self._azure_client()
-            else:
-                client = self._openai_client()
+            client = self._get_client()
 
-            result = client.images.generate(
-                model=str(model),
+            # Call async image generation on the selected client
+            result = await client.images.generate(
+                model=model.value,
                 prompt=req.prompt,
                 size=size,
                 n=n,
@@ -257,7 +251,7 @@ class DalleDiffusion(ImageEngine):
             return self._create_provider_error(model, provider, normlog, e)
 
     # -------------------------------- edit ------------------------------- #
-    def edit(self, req: ImageEditRequest) -> ImageResponse:  # type: ignore[override]
+    async def edit(self, req: ImageEditRequest) -> ImageResponse:  # type: ignore[override]
         """DALL·E 3 does not support edit operations."""
         provider = self._select_provider(getattr(req, "provider", None))
         model = req.model or Model.DALL_E_3
