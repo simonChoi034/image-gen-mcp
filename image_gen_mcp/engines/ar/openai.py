@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import base64
-import io
+import contextlib
 import urllib.request
 from enum import StrEnum
 from typing import Any
 
-from openai import AsyncAzureOpenAI as AzureOpenAIClient
-from openai import AsyncOpenAI as OpenAIClient
+from openai import AsyncAzureOpenAI, AsyncOpenAI
 
 from ...schema import (
     CapabilityReport,
@@ -28,7 +27,6 @@ from ...shard.enums import (
     Orientation,
     Provider,
     Quality,
-    SizeCode,
 )
 from ...utils.error_helpers import augment_with_capability_tip
 from ...utils.prompt import render_prompt_with_guidance
@@ -37,7 +35,7 @@ from ..base_engine import ImageEngine
 settings = get_settings()
 # Use grouped enums for related constant sets to improve discoverability
 
-API_VERSION_DEFAULT = "2024-02-15-preview"
+API_VERSION_DEFAULT = "2025-04-01-preview"
 
 
 class GPTImage1Size(StrEnum):
@@ -101,13 +99,6 @@ def _read_image_bytes(source: str) -> bytes:
     return base64.b64decode(source)
 
 
-# Thin wrapper helpers removed: use GPTImage1Size.from_orientation and
-# GPTImage1Quality.from_quality inline where needed.
-
-
-# OpenAI AR engine
-
-
 class OpenAIAR(ImageEngine):
     """OpenAI/Azure AR adapter for GPT-Image-1.
 
@@ -145,26 +136,26 @@ class OpenAIAR(ImageEngine):
             return req_provider
         return self.provider
 
-    def _openai_client(self) -> OpenAIClient:
-        if OpenAIClient is None:  # pragma: no cover
-            raise RuntimeError("openai package is required but not installed")
+    def _openai_client(self) -> AsyncOpenAI:
         if not settings.openai_api_key:
             raise ValueError("OPENAI_API_KEY environment variable must be set to use OpenAI provider")
-        return OpenAIClient(api_key=settings.openai_api_key, timeout=30.0)
+        return AsyncOpenAI(api_key=settings.openai_api_key)
 
-    def _azure_client(self) -> AzureOpenAIClient:
-        if AzureOpenAIClient is None:  # pragma: no cover
-            raise RuntimeError("openai package with AzureOpenAI is required but not installed")
+    def _azure_client(self) -> AsyncAzureOpenAI:
         if not settings.azure_openai_endpoint:
             raise ValueError("AZURE_OPENAI_ENDPOINT environment variable must be set to use Azure OpenAI")
         if not settings.azure_openai_key:
             raise ValueError("AZURE_OPENAI_KEY environment variable must be set to use Azure OpenAI")
-        return AzureOpenAIClient(
+        return AsyncAzureOpenAI(
             api_key=settings.azure_openai_key,
             azure_endpoint=settings.azure_openai_endpoint,
             api_version=settings.azure_openai_api_version or API_VERSION_DEFAULT,
-            timeout=30.0,
         )
+
+    def _get_client(self) -> Any:
+        if self.provider == Provider.AZURE_OPENAI:
+            return self._azure_client()
+        return self._openai_client()
 
     # Parameter normalization
     def _normalize_count(self, req_n: int | None) -> tuple[int, dict[str, Any]]:
@@ -208,12 +199,6 @@ class OpenAIAR(ImageEngine):
 
         return bg_native, normalization, dropped
 
-    def _check_unsupported_params(self, negative_prompt: str | None) -> list[str]:
-        """Check for unsupported parameters and return list of dropped params."""
-        dropped = []
-        # negative_prompt is honored via prompt engineering; do not drop
-        return dropped
-
     # Error handling
 
     def _create_provider_error(self, model: Model, provider: Provider, normlog: dict[str, Any], dropped: list[str], exception: Exception) -> ImageResponse:
@@ -234,39 +219,6 @@ class OpenAIAR(ImageEngine):
             model=model,
             error=Error(code=C.ERROR_CODE_PROVIDER_ERROR, message=augment_with_capability_tip(str(exception))),
         )
-
-    # Client operations
-    async def _execute_generate_call(self, client: Any, model: str, prompt: str, native: dict[str, Any]) -> Any:
-        """Execute image generation API call with appropriate parameters."""
-        params = {
-            "model": model,
-            "prompt": prompt,
-            "size": native["size"],
-            "n": native["n"],
-        }
-
-        # Add optional parameters if present
-        if native.get("quality"):
-            params["quality"] = native["quality"]
-        if native.get("background"):
-            params["background"] = native["background"]
-
-        return await client.images.generate(**params)
-
-    async def _execute_edit_call(self, client: Any, model: str, prompt: str, image_io: io.BytesIO, mask_io: io.BytesIO | None, native: dict[str, Any]) -> Any:
-        """Execute image edit API call with appropriate parameters."""
-        params = {
-            "model": model,
-            "image": [image_io],
-            "prompt": prompt,
-            "size": native["size"],
-            "n": native["n"],
-        }
-
-        if mask_io is not None:
-            params["mask"] = mask_io
-
-        return await client.images.edit(**params)
 
     def _process_image_data(self, result: Any, response_format: str) -> list[ResourceContent]:
         """Process OpenAI image data and return ResourceContent objects."""
@@ -291,14 +243,10 @@ class OpenAIAR(ImageEngine):
     def _normalize_common(
         self,
         *,
-        model: str,
         req_n: int | None,
-        native_size: str | None,
-        size: SizeCode | None,
         orientation: Orientation | None,
         quality: Quality | None,
         background: Background | None,
-        negative_prompt: str | None,
     ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
         """Return (native_params, normalization_log, dropped_params).
 
@@ -322,10 +270,6 @@ class OpenAIAR(ImageEngine):
         normalization.update(bg_norm)
         dropped.extend(bg_dropped)
 
-        # Check for unsupported parameters
-        unsupported_dropped = self._check_unsupported_params(negative_prompt)
-        dropped.extend(unsupported_dropped)
-
         # Always drop unsupported fields
 
         # Build native parameters
@@ -342,17 +286,13 @@ class OpenAIAR(ImageEngine):
         provider = self._select_provider(getattr(req, "provider", None))
 
         # model passthrough; default to gpt-image-1 for AR OpenAI/Azure
-        model = req.model or Model.GPT_IMAGE_1
+        model = req.model
 
         native, normlog, dropped = self._normalize_common(
-            model=str(model),
             req_n=req.n,
-            native_size=None,
-            size=req.size,
             orientation=req.orientation,
             quality=req.quality,
             background=req.background,
-            negative_prompt=req.negative_prompt,
         )
 
         try:
@@ -360,25 +300,22 @@ class OpenAIAR(ImageEngine):
             final_prompt, augment_log = render_prompt_with_guidance(
                 prompt=req.prompt,
                 model=model,
-                size=req.size,
-                orientation=req.orientation,
-                quality=req.quality,
-                background=req.background,
                 negative_prompt=req.negative_prompt,
             )
             normlog.update(augment_log)
 
-            if provider == Provider.AZURE_OPENAI:
-                client = self._azure_client()
-                # Azure GPT-Image-1 returns base64; response_format may be ignored.
-                result = await self._execute_generate_call(client, str(model), final_prompt, native)
-                images = self._process_image_data(result, "b64_json")  # Azure returns base64
-                return ImageResponse(ok=True, content=images, model=model)
+            client = self._get_client()
 
-            # OpenAI
-            client = self._openai_client()
-            result = await self._execute_generate_call(client, str(model), final_prompt, native)
-            images = self._process_image_data(result, "b64_json")
+            # Azure GPT-Image-1 returns base64; response_format may be ignored.
+            result = await client.images.generate(
+                model=model.value,
+                prompt=final_prompt,
+                size=native["size"],
+                n=native["n"],
+                quality=native.get("quality"),
+                background=native.get("background"),
+            )
+            images = self._process_image_data(result, "b64_json")  # Azure returns base64
             return ImageResponse(ok=True, content=images, model=model)
 
         except Exception as e:  # pragma: no cover - provider failure path
@@ -386,55 +323,49 @@ class OpenAIAR(ImageEngine):
 
     async def edit(self, req: ImageEditRequest) -> ImageResponse:  # type: ignore[override]
         provider = self._select_provider(getattr(req, "provider", None))
-        model = req.model or Model.GPT_IMAGE_1
+        model = req.model
 
         native, normlog, dropped = self._normalize_common(
-            model=str(model),
             req_n=req.n,
-            native_size=None,
-            size=req.size,
             orientation=req.orientation,
             quality=req.quality,
             background=req.background,
-            negative_prompt=req.negative_prompt,
         )
 
         try:
-            image_src: str | None = None
-            if req.images and len(req.images) > 0:
-                image_src = req.images[0]
-            if not image_src:
-                raise ValueError("images[0] is required for edit")
+            if len(req.images) == 0:
+                raise ValueError("At least one image must be provided for editing")
 
-            image_bytes = _read_image_bytes(image_src)
-            image_io = io.BytesIO(image_bytes)
-            mask_io: io.BytesIO | None = None
-            if req.mask:
-                mask_io = io.BytesIO(_read_image_bytes(req.mask))
+            # Use ExitStack to ensure all opened file handles are closed on exit
+            with contextlib.ExitStack() as stack:
+                # Open mask if provided
+                mask_io = stack.enter_context(open(req.mask, "rb")) if req.mask else None
 
-            # Build prompt with XML guidance for unsupported knobs (negative_prompt)
-            final_prompt, augment_log = render_prompt_with_guidance(
-                prompt=req.prompt,
-                model=model,
-                size=req.size,
-                orientation=req.orientation,
-                quality=req.quality,
-                background=req.background,
-                negative_prompt=req.negative_prompt,
-            )
-            normlog.update(augment_log)
+                # Open all image sources as file-like objects; the stack will close them
+                image_files = [stack.enter_context(open(image_src, "rb")) for image_src in req.images]
 
-            if provider == Provider.AZURE_OPENAI:
-                client = self._azure_client()
-                result = await self._execute_edit_call(client, str(model), final_prompt, image_io, mask_io, native)
+                # Build prompt with XML guidance for unsupported knobs (negative_prompt)
+                final_prompt, augment_log = render_prompt_with_guidance(
+                    prompt=req.prompt,
+                    model=model,
+                    negative_prompt=req.negative_prompt,
+                )
+                normlog.update(augment_log)
+
+                client = self._get_client()
+
+                result = await client.images.edit(
+                    model=model.value,
+                    image=image_files,
+                    prompt=final_prompt,
+                    size=native["size"],
+                    n=native["n"],
+                    quality=native.get("quality"),
+                    background=native.get("background"),
+                    **{"mask": mask_io} if mask_io else {},  # type: ignore
+                )
                 images = self._process_image_data(result, "b64_json")  # Azure returns base64
                 return ImageResponse(ok=True, content=images, model=model)
-
-            # OpenAI
-            client = self._openai_client()
-            result = await self._execute_edit_call(client, str(model), final_prompt, image_io, mask_io, native)
-            images = self._process_image_data(result, "b64_json")  # Edit typically returns base64
-            return ImageResponse(ok=True, content=images, model=model)
 
         except Exception as e:  # pragma: no cover - provider failure path
             return self._create_provider_edit_error(model, provider, normlog, dropped, e)
