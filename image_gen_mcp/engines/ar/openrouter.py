@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from ...schema import (
     CapabilityReport,
@@ -95,6 +95,7 @@ class OpenRouterAR(ImageEngine):
                     max_n=1,
                     supports_edit=True,
                     supports_mask=False,
+                    supports_multi_image_edit=True,
                 )
             ],
         )
@@ -158,11 +159,11 @@ class OpenRouterAR(ImageEngine):
     # Unsupported-field helpers removed; engine always drops unsupported fields.
 
     # HTTP client operations
-    def _client(self):
+    def _client(self) -> AsyncOpenAI:
         """Return configured AsyncOpenAI client routed to OpenRouter base URL."""
         if not settings.openrouter_api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable must be set to use OpenRouter provider")
-        return OpenAI(
+        return AsyncOpenAI(
             base_url=OpenRouterEndpoint.BASE.value,
             api_key=settings.openrouter_api_key,
         )
@@ -235,7 +236,7 @@ class OpenRouterAR(ImageEngine):
     # API operations: generate / edit
     async def generate(self, req: ImageGenerateRequest) -> ImageResponse:  # type: ignore[override]
         """Generate images using OpenRouter API."""
-        model = req.model or Model.OPENROUTER_GOOGLE_GEMINI_IMAGE
+        model = req.model
 
         # Normalize parameters
         n, normlog = self._normalize_count(req.n)
@@ -289,18 +290,15 @@ class OpenRouterAR(ImageEngine):
         parts including a text instruction and an image_url object, following
         OpenAI's Chat Completions vision message format.
         """
-        model = req.model or Model.OPENROUTER_GOOGLE_GEMINI_IMAGE
+        model = req.model
 
         # Normalize parameters (reuse generate-time drop behavior)
         n, normlog = self._normalize_count(req.n)
 
         try:
             # Resolve image source
-            image_src: str | None = None
-            if req.images and len(req.images) > 0:
-                image_src = req.images[0]
-            if not image_src:
-                raise ValueError("images[0] is required for edit")
+            if len(req.images) == 0:
+                raise ValueError("At least one image must be provided for editing")
 
             # Build guidance-augmented text
             prompt, augment_log = render_prompt_with_guidance(
@@ -317,8 +315,10 @@ class OpenRouterAR(ImageEngine):
             # Compose messages per OpenAI vision chat format
             content_parts: list[dict[str, Any]] = [
                 {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": self._as_image_url(image_src)}},
             ]
+            for image_src in req.images:
+                content_parts.append({"type": "image_url", "image_url": {"url": self._as_image_url(image_src)}})
+
             messages = [{"role": "user", "content": content_parts}]
 
             payload = self._build_messages_payload(model, messages, n)

@@ -109,10 +109,10 @@ class DalleDiffusion(ImageEngine):
     def _azure_client(self) -> AsyncAzureOpenAI:
         if not settings.azure_openai_endpoint:
             raise ValueError("AZURE_OPENAI_ENDPOINT environment variable must be set to use Azure OpenAI")
-        if not settings.azure_openai_key:
-            raise ValueError("AZURE_OPENAI_KEY environment variable must be set to use Azure OpenAI")
+        if not settings.azure_openai_api_key:
+            raise ValueError("AZURE_OPENAI_API_KEY environment variable must be set to use Azure OpenAI")
         return AsyncAzureOpenAI(
-            api_key=settings.azure_openai_key,
+            api_key=settings.azure_openai_api_key,
             azure_endpoint=settings.azure_openai_endpoint,
             api_version=settings.azure_openai_api_version or API_VERSION_DEFAULT,
         )

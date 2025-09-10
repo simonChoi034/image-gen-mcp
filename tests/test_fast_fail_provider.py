@@ -10,7 +10,7 @@ from image_gen_mcp.shard.enums import Model, Provider
 def test_provider_validation_helper(monkeypatch):
     """Test the provider validation helper directly."""
     # Ensure no credentials present
-    for var in ["OPENAI_API_KEY", "AZURE_OPENAI_KEY", "AZURE_OPENAI_ENDPOINT", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "VERTEX_PROJECT", "VERTEX_LOCATION"]:
+    for var in ["OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "VERTEX_PROJECT", "VERTEX_LOCATION"]:
         monkeypatch.delenv(var, raising=False)
 
     # Test that validation properly detects missing providers
@@ -21,7 +21,7 @@ def test_provider_validation_helper(monkeypatch):
 
 def test_generate_fast_fail_provider_unavailable(monkeypatch):
     # Ensure no credentials present
-    for var in ["OPENAI_API_KEY", "AZURE_OPENAI_KEY", "AZURE_OPENAI_ENDPOINT", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "VERTEX_PROJECT", "VERTEX_LOCATION"]:
+    for var in ["OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "VERTEX_PROJECT", "VERTEX_LOCATION"]:
         monkeypatch.delenv(var, raising=False)
 
     # FastMCP tool wrapper stores original coroutine in _fn
@@ -48,7 +48,7 @@ def test_generate_fast_fail_provider_unavailable(monkeypatch):
 
 def test_edit_fast_fail_provider_unavailable(monkeypatch):
     # Ensure no credentials present
-    for var in ["OPENAI_API_KEY", "AZURE_OPENAI_KEY", "AZURE_OPENAI_ENDPOINT", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "VERTEX_PROJECT", "VERTEX_LOCATION"]:
+    for var in ["OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "VERTEX_PROJECT", "VERTEX_LOCATION"]:
         monkeypatch.delenv(var, raising=False)
 
     # minimal 1x1 png base64

@@ -27,7 +27,7 @@ If `engine` is omitted, the server infers the route from the requested `model` o
 | Variable                   | Required When      | Notes                                          |
 | -------------------------- | ------------------ | ---------------------------------------------- |
 | `OPENAI_API_KEY`           | Using OpenAI       | Enables OpenAI DALL·E 3 and GPT‑Image‑1.       |
-| `AZURE_OPENAI_KEY`         | Using Azure OpenAI | Must be set with endpoint.                     |
+| `AZURE_OPENAI_API_KEY`     | Using Azure OpenAI | Must be set with endpoint.                     |
 | `AZURE_OPENAI_ENDPOINT`    | Using Azure OpenAI | Example: `https://<name>.openai.azure.com`.    |
 | `AZURE_OPENAI_API_VERSION` | Optional           | Defaults to a recent stable version.           |
 | `GEMINI_API_KEY`           | Using Gemini       | Optional if using ADC/workload identity.       |
@@ -148,7 +148,7 @@ export OPENAI_API_KEY="sk-..."
 ### Azure OpenAI Images
 
 ```bash
-export AZURE_OPENAI_KEY="..."
+export AZURE_OPENAI_API_KEY="..."
 export AZURE_OPENAI_ENDPOINT="https://<name>.openai.azure.com"
 export AZURE_OPENAI_API_VERSION="2024-02-15-preview" # optional
 ```

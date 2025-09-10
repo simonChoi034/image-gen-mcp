@@ -38,7 +38,7 @@
 ## Security & Configuration Tips
 
 - Set only what you use. Common env vars:
-  - `OPENAI_API_KEY`, `AZURE_OPENAI_KEY`, `AZURE_OPENAI_ENDPOINT`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`
+  - `OPENAI_API_KEY`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`
   - Vertex: `VERTEX_PROJECT`, `VERTEX_LOCATION`, `VERTEX_CREDENTIALS_PATH`
 - Validate with capabilities: call MCP tool `get_model_capabilities` to confirm enabled providers.
 

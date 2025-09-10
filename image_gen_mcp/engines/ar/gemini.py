@@ -72,6 +72,7 @@ class GeminiAR(ImageEngine):
                     max_n=1,
                     supports_edit=True,
                     supports_mask=False,
+                    supports_multi_image_edit=True,
                 )
             ],
         )
@@ -247,17 +248,18 @@ class GeminiAR(ImageEngine):
         )
 
         try:
-            image_src: str | None = None
-            if req.images and len(req.images) > 0:
-                image_src = req.images[0]
-            if not image_src:
-                raise ValueError("images[0] is required for edit")
-
-            image_bytes, mime = self.read_image_bytes_and_mime(image_src)
-
-            image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime)
+            if len(req.images) == 0:
+                raise ValueError("At least one image must be provided for editing")
 
             client = self._genai_client(provider)
+
+            # Read and prepare all input images
+            image_parts = []
+            for image in req.images:
+                image_bytes, mime = self.read_image_bytes_and_mime(image)
+                image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime)
+                image_parts.append(image_part)
+
             prompt, augment_log = render_prompt_with_guidance(
                 prompt=req.prompt,
                 model=model,
@@ -273,7 +275,7 @@ class GeminiAR(ImageEngine):
                 response_modalities=["TEXT", "IMAGE"],
             )
 
-            resp = await client.aio.models.generate_content(model=model.value, contents=[prompt, image_part], config=generate_content_config)
+            resp = await client.aio.models.generate_content(model=model.value, contents=[prompt, *image_parts], config=generate_content_config)
 
             images = self._collect_images_from_response(resp)
             if not images:

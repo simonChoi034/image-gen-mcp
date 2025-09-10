@@ -181,7 +181,7 @@ def _get_enabled_providers(settings: Settings = get_settings()) -> dict[Provider
         Provider.AZURE_OPENAI: settings.use_azure_openai,
         Provider.GEMINI: settings.use_gemini,
         Provider.OPENROUTER: settings.use_openrouter,
-        Provider.VERTEX: bool(settings.vertex_project and settings.vertex_location),
+        Provider.VERTEX: settings.use_vertex,
     }
 
 

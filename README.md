@@ -325,7 +325,7 @@ Set only what you need:
 | Variable | Required for | Description |
 |---|---|---|
 | `OPENAI_API_KEY` | OpenAI | API key for OpenAI. |
-| `AZURE_OPENAI_KEY` | Azure OpenAI | Azure OpenAI key. |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI | Azure OpenAI key. |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI | Azure endpoint URL. |
 | `AZURE_OPENAI_API_VERSION` | Azure OpenAI | Optional; default `2024-02-15-preview`. |
 | `GEMINI_API_KEY` | Gemini | Gemini Developer API key. |
