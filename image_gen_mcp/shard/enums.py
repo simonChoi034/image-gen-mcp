@@ -113,8 +113,6 @@ class Model(StrEnum):
     IMAGEN_3_CAPABILITY = "imagen-3.0-capability-001"  # Vertex (supports editing)
 
 
-__all__ = ["Provider", "Family", "OutputFormat", "Model", "SizeCode", "Orientation", "Quality", "Background"]
-
 # ---------------------- Provider-native helper enums ---------------------- #
 
 
@@ -133,4 +131,4 @@ class ImagenResolutionHint(StrEnum):
     TWO_K = "2K"
 
 
-__all__ += ["ImagenAspectRatio", "ImagenResolutionHint"]
+__all__ = ["Provider", "Family", "OutputFormat", "Model", "SizeCode", "Orientation", "Quality", "Background", "ImagenAspectRatio", "ImagenResolutionHint"]
