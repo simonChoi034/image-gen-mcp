@@ -236,9 +236,9 @@ class DalleDiffusion(ImageEngine):
             result = await client.images.generate(
                 model=model.value,
                 prompt=req.prompt,
-                size=size,
+                size=size,  # type: ignore[arg-type]
                 n=n,
-                response_format=response_format,
+                response_format=response_format,  # type: ignore[arg-type]
             )
 
             images = self._process_image_data(result, want_b64)
