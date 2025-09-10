@@ -40,6 +40,22 @@ SCOPES = [
 # Imagen-specific enums/constants
 
 
+class ImagenAspect(StrEnum):
+    """Imagen aspect ratio mapping from unified `Orientation` enum."""
+
+    SQUARE = "1:1"
+    PORTRAIT = "9:16"
+    LANDSCAPE = "16:9"
+
+    @classmethod
+    def from_orientation(cls, orientation: Orientation | None) -> str:
+        if orientation == Orientation.PORTRAIT:
+            return cls.PORTRAIT.value
+        if orientation == Orientation.LANDSCAPE:
+            return cls.LANDSCAPE.value
+        return cls.SQUARE.value
+
+
 class ImagenErrorType(StrEnum):
     """Imagen-specific error types."""
 
@@ -212,13 +228,8 @@ class VertexImagen(ImageEngine):
         return n
 
     def _map_aspect_ratio(self, orientation: Orientation | None) -> str:
-        """Map unified orientation to Imagen aspect ratio string."""
-        if orientation == Orientation.PORTRAIT:
-            return "3:4"
-        elif orientation == Orientation.LANDSCAPE:
-            return "4:3"
-        else:
-            return "1:1"  # Default to square
+        """Map unified orientation to Imagen aspect ratio string using `ImagenAspect`."""
+        return ImagenAspect.from_orientation(orientation)
 
     # Error handling
 

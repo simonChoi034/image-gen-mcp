@@ -251,14 +251,11 @@ class OpenRouterAR(ImageEngine):
             None,  # we'll fold negative_prompt into prompt guidance instead of dropping
         )
 
-        # Drop unsupported fields silently
-
         try:
             # Use XML-tagged guidance template for AR folding
             prompt, augment_log = render_prompt_with_guidance(
                 prompt=req.prompt,
                 model=model,
-                size=req.size,
                 orientation=req.orientation,
                 quality=req.quality,
                 background=req.background,
@@ -304,7 +301,6 @@ class OpenRouterAR(ImageEngine):
             prompt, augment_log = render_prompt_with_guidance(
                 prompt=req.prompt,
                 model=model,
-                size=req.size,
                 orientation=req.orientation,
                 quality=req.quality,
                 background=req.background,
