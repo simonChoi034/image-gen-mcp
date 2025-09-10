@@ -4,7 +4,7 @@ from typing import Any
 
 import jinja2
 
-from ..shard.enums import Background, Model, Orientation, Quality, SizeCode
+from ..shard.enums import Background, Model, Orientation, Quality
 
 # ---------------------------------------------------------------------------
 # Jinja2 template to fold unsupported knobs into prompt guidance
@@ -18,102 +18,58 @@ _GUIDANCE_TEMPLATE = jinja2.Environment(
     lstrip_blocks=True,
 ).from_string(
     """
-<task>
 {{ prompt | trim }}
-</task>
 
 {% if fold.negative_prompt %}
-<avoid>
+AVOID (must not appear):
 {{ fold.negative_prompt }}
-</avoid>
 {% endif %}
 
-{# Only render guidance if there is at least one folded field #}
-{% if fold.orientation or fold.size or fold.quality or fold.background %}
-<guidance>
-{# Orientation guidance #}
 {% if fold.orientation %}
-<orientation>
 {% if fold.orientation == "square" %}
-- Orientation: Square (1:1). Use when you want centered compositions, avatars, icons, or product thumbnails.
-    Example phrasing: "Square format (1:1) — crop to a centered subject."
+Orientation: Square (1:1). Center the subject with comfortable padding.
+If a seed canvas or input image is supplied, do not change the input aspect ratio.
+Prefer phrasing like: "Square format (1:1); centered composition; avoid cropping key features."
 {% elif fold.orientation == "portrait" %}
-- Orientation: Portrait (taller than wide; e.g., 3:4). Use for portraits, posters, or mobile vertical displays.
-    Example phrasing: "Portrait orientation — taller than wide; focus on full body or head-and-shoulders."
+Orientation: Portrait 9:16 (vertical). Favor full‑height framing for mobile views.
+If a seed canvas or input image is supplied, do not change the input aspect ratio.
+Suggest phrasing: "Portrait 9:16 — vertical framing; keep the full subject within frame."
 {% elif fold.orientation == "landscape" %}
-- Orientation: Landscape (wider than tall; e.g., 4:3 or wider). Use for landscapes, banners, or cinematic compositions.
-    Example phrasing: "Landscape orientation — horizontally wide composition, broad field of view."
+Orientation: Landscape 16:9 (horizontal). Use a wide composition with clear foreground/midground/background.
+If a seed canvas or input image is supplied, do not change the input aspect ratio.
+Suggest phrasing: "Landscape 16:9 — wide composition; maintain a stable horizon."
 {% else %}
-- Orientation: {{ fold.orientation }} (unrecognized). Prefer: square / portrait / landscape.
+Orientation: {{ fold.orientation }} (unrecognized). Prefer: square (1:1) / portrait (9:16) / landscape (16:9).
 {% endif %}
-</orientation>
 {% endif %}
 
-{# Size guidance #}
-{% if fold.size %}
-<size>
-{% if fold.size == "S" %}
-- Size: Small (S). Fast generation, lower detail. Approx: up to ~512 px on long side. Use for thumbnails or quick drafts.
-    Example phrasing: "Approx size tier: S (small, fast, lower detail)."
-{% elif fold.size == "M" %}
-- Size: Medium (M). Balanced quality vs speed. Approx: ~1024 px on long side. Good default for most use-cases.
-    Example phrasing: "Approx size tier: M (~1024 px long side; balanced quality)."
-{% elif fold.size == "L" %}
-- Size: Large (L). Highest detail, slower. Approx: 2048 px+ on long side; suitable for print or high-res output.
-    Example phrasing: "Approx size tier: L (large, highest detail — slower)."
-{% else %}
-- Size: {{ fold.size }} (unrecognized). Prefer: S / M / L.
-{% endif %}
-</size>
-{% endif %}
-
-{# Quality guidance #}
 {% if fold.quality %}
-<quality>
 {% if fold.quality == "draft" %}
-- Quality: Draft. Prioritize speed and rough composition over fine detail and texture.
-    Example phrasing: "Quality: draft — coarse detail, faster render."
+Detail level: Draft — prioritize speed and overall composition over micro‑detail; keep the description brief and concrete.
 {% elif fold.quality == "standard" %}
-- Quality: Standard. Balanced settings for production-quality images.
-    Example phrasing: "Quality: standard — balanced detail and generation time."
+Detail level: Standard — balanced fidelity suitable for production assets; avoid verbose style tags.
 {% elif fold.quality == "high" %}
-- Quality: High. Prioritize fine textures, realistic lighting, and high fidelity; expect longer render times.
-    Example phrasing: "Quality: high — prioritize photoreal detail and fine textures."
+Detail level: High — emphasize fine textures and realistic lighting; allow longer render time.
 {% else %}
-- Quality: {{ fold.quality }} (unrecognized). Prefer: draft / standard / high.
+Detail level: {{ fold.quality }} (unrecognized). Prefer: draft / standard / high.
 {% endif %}
-</quality>
 {% endif %}
 
-{# Background guidance #}
 {% if fold.background %}
-<background>
 {% if fold.background == "transparent" %}
-- Background: Transparent (alpha). Suitable for overlays and compositing; keep edges clean for cutouts.
-    Example phrasing: "Background: transparent — preserve alpha where subject is not present."
+Background: Transparent (alpha). Keep edges clean for compositing; avoid halos and stray pixels.
 {% elif fold.background == "opaque" %}
-- Background: Opaque. Render with a solid/background environment (default). Specify a desired color or neutral backdrop if needed.
-    Example phrasing: "Background: opaque — use plain neutral backdrop (e.g., white or light grey)."
+Background: Opaque. Use a simple neutral backdrop or a coherent environment as specified in the task.
 {% else %}
-- Background: {{ fold.background }} (unrecognized). Prefer: transparent / opaque.
+Background: {{ fold.background }} (unrecognized). Prefer: transparent / opaque.
 {% endif %}
-</background>
 {% endif %}
 
-{# Short summary line to suggest how to merge guidance into the task prompt #}
-<note>
-If folding these knobs into the textual instruction, append a short guidance phrase to the task
-such as: "[guidance: orientation: portrait; approx size tier: M; quality: standard; background: transparent; avoid: no text]".
-Keep guidance concise and prioritized (avoid long paragraphs).
-</note>
-</guidance>
-{% endif %}
+Guidance: Write a short, natural sentence (not a tag list) that covers subject, composition, lighting, mood, background, and style.
+Prefer plain language over comma‑separated keywords.
+If strict orientation is required and a seed canvas is supplied at 1:1, 9:16, or 16:9, do not change the input aspect ratio.
 """
 )
-
-
-def _as_str(val: Any | None) -> str | None:
-    return None if val is None else str(val)
 
 
 def _unsupported_knobs_for_model(model: Model) -> set[str]:
@@ -141,7 +97,6 @@ def render_prompt_with_guidance(
     *,
     prompt: str,
     model: Model,
-    size: SizeCode | None = None,
     orientation: Orientation | None = None,
     quality: Quality | None = None,
     background: Background | None = None,
@@ -160,9 +115,6 @@ def render_prompt_with_guidance(
     if "orientation" in to_fold and orientation is not None:
         fold["orientation"] = orientation.value
         used.append("orientation")
-    if "size" in to_fold and size is not None:
-        fold["size"] = size.value
-        used.append("size")
     if "quality" in to_fold and quality is not None:
         fold["quality"] = quality.value
         used.append("quality")

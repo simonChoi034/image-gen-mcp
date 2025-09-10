@@ -211,7 +211,6 @@ class GeminiAR(ImageEngine):
             prompt, augment_log = render_prompt_with_guidance(
                 prompt=req.prompt,
                 model=model,
-                size=req.size,
                 orientation=req.orientation,
                 quality=req.quality,
                 background=req.background,
@@ -263,7 +262,6 @@ class GeminiAR(ImageEngine):
             prompt, augment_log = render_prompt_with_guidance(
                 prompt=req.prompt,
                 model=model,
-                size=req.size,
                 orientation=req.orientation,
                 quality=req.quality,
                 background=req.background,

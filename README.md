@@ -353,19 +353,6 @@ Supports multiple transports:
 
 ---
 
-## 🛟 Troubleshooting & FAQ
-
-**Which size does `S | M | L` map to?**  
-Sizes are normalized; exact pixel dimensions vary by provider.
-
-**Can I mask with Gemini or Imagen?**  
-Masking is not currently supported on those engines; use OpenAI/Azure for masking.
-
-**How do I discover what’s live right now?**  
-Call `get_model_capabilities` (optionally with `"provider": "openai"` etc.).
-
----
-
 ## ⚠️ Testing remarks
 
 I tested this project locally using the `openrouter`-backed model only. I could not access Gemini or OpenAI from my location (Hong Kong) due to regional restrictions — thanks, US government — so I couldn't fully exercise those providers.
