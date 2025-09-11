@@ -61,12 +61,26 @@ This section standardizes inputs and outputs across OpenAI (DALL·E 3, GPT‑Ima
 
 ### Response (Generate)
 
-- `ok`: boolean
-- `images`: list of `{ url? , b64? , mime_type, storage_url? }`
-- `engine`: engine identifier used
-- `model`: model identifier used
-- `meta`: additional provider-normalized details
-- `error?`: normalized error if `ok=false`
+Responses are provided as two complementary channels:
+
+- MCP content blocks: binary `ImageContent` blocks carrying the actual image payloads (one per image).
+- Structured JSON: a minimal `ImageToolStructured` summary (no blobs) that contains `model`, `image_count`, `images` (metadata), and `meta`.
+
+Example structured output (successful):
+
+```
+{
+  "structured_content": {
+    "model": "dall-e-3",
+    "image_count": 1,
+    "images": [{ "uri": "image://abc", "name": "image-abc.png", "mimeType": "image/png" }],
+    "meta": { "provider": "openai", "n": 1 }
+  },
+  "content": [ /* ImageContent blocks */ ]
+}
+```
+
+Errors raised during engine execution are surfaced as exceptions and converted by the MCP tool wrapper (FastMCP) into MCP error responses (ToolError). Clients will therefore typically receive an MCP error response when an engine fails, rather than a successful envelope containing an `error` field.
 
 ### Request (Edit)
 
@@ -77,7 +91,7 @@ This section standardizes inputs and outputs across OpenAI (DALL·E 3, GPT‑Ima
 
 ### Response (Edit)
 
-- Same structure as generate.
+Same structure as generate: `ImageContent` blocks for binaries and a minimal `ImageToolStructured` for metadata. Failures during editing follow the same exception-first pattern and are returned to clients as MCP ToolError responses.
 
 ## Model-Specific Notes (Quick Reference)
 

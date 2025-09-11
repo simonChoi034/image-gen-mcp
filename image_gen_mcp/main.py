@@ -2,20 +2,20 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 from fastmcp import Context, FastMCP
+from fastmcp.exceptions import ToolError
 from fastmcp.tools.tool import ToolResult
 from loguru import logger
 from pydantic import Field
 
 from .engines import ModelFactory
+from .exceptions import ImageGenerationError
 from .schema import (
     CapabilitiesResponse,
-    Error,
     ImageEditRequest,
     ImageGenerateRequest,
-    ImageResponse,
 )
 from .shard.enums import (
     Background,
@@ -26,10 +26,25 @@ from .shard.enums import (
     SizeCode,
 )
 from .shard.instructions import SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS
-from .utils.error_helpers import augment_with_capability_tip
 from .utils.image_utils import save_images_from_response
 
 app = FastMCP("image-gen-mcp", instructions=SERVER_INSTRUCTIONS)
+
+
+def _handle_image_generation_error(e: Exception) -> NoReturn:
+    """Convert an exception to a ToolError for proper MCP error handling.
+
+    This follows FastMCP best practices by raising ToolError for
+    business logic failures, which FastMCP will convert to proper
+    MCP error responses with isError=True.
+    """
+    if isinstance(e, ImageGenerationError):
+        # Use our structured error information
+        raise ToolError(e.user_message)
+
+    # For unexpected exceptions, log and provide a generic error message
+    logger.error(f"Unexpected error: {type(e).__name__}: {e}")
+    raise ToolError("An unexpected error occurred. Please try again.")
 
 
 @app.tool(
@@ -95,11 +110,7 @@ async def mcp_generate_image(
         )
 
         # Use factory's integrated validation and creation
-        engine, error_resp = ModelFactory.validate_and_create(provider=req.provider, model=req.model)
-        if error_resp is not None:
-            # Fast-fail on provider/model validation issues
-            structured = error_resp.build_structured_from_response()
-            return ToolResult(content=[], structured_content=structured.model_dump())
+        engine = ModelFactory.validate_and_create(provider=req.provider, model=req.model)
 
         # Engine is guaranteed to be non-None if error_resp is None
         assert engine is not None
@@ -107,7 +118,7 @@ async def mcp_generate_image(
         resp = await engine.generate(req)
 
         # Save images to disk only if response was successful
-        if resp.ok:
+        if len(resp.content) > 0:
             await asyncio.to_thread(save_images_from_response, resp, directory)
 
         # Convert to FastMCP ImageContent while preserving structured payload
@@ -115,15 +126,7 @@ async def mcp_generate_image(
         structured = resp.build_structured_from_response()
         return ToolResult(content=contents, structured_content=structured.model_dump())
     except Exception as e:
-        logger.error(f"Error generating image: {e}")
-        resp = ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code="generation_error", message=augment_with_capability_tip(f"Failed to generate image: {str(e)}")),
-        )
-        structured = resp.build_structured_from_response()
-        return ToolResult(content=[], structured_content=structured.model_dump())
+        _handle_image_generation_error(e)
 
 
 @app.tool(
@@ -201,11 +204,7 @@ async def mcp_edit_image(
         )
 
         # Use factory's integrated validation and creation
-        engine, error_resp = ModelFactory.validate_and_create(provider=req.provider, model=req.model)
-        if error_resp is not None:
-            # Fast-fail on provider/model validation issues
-            structured = error_resp.build_structured_from_response()
-            return ToolResult(content=[], structured_content=structured.model_dump())
+        engine = ModelFactory.validate_and_create(provider=req.provider, model=req.model)
 
         # Engine is guaranteed to be non-None if error_resp is None
         assert engine is not None
@@ -213,21 +212,14 @@ async def mcp_edit_image(
         resp = await engine.edit(req)
 
         # Save images to disk (runs in a thread to avoid blocking the event loop)
-        await asyncio.to_thread(save_images_from_response, resp, directory)
+        if len(resp.content) > 0:
+            await asyncio.to_thread(save_images_from_response, resp, directory)
 
         contents = resp.response_to_image_contents()
         structured = resp.build_structured_from_response()
         return ToolResult(content=contents, structured_content=structured.model_dump())
     except Exception as e:
-        logger.error(f"Error editing image: {e}")
-        resp = ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code="edit_error", message=augment_with_capability_tip(f"Failed to edit image: {str(e)}")),
-        )
-        structured = resp.build_structured_from_response()
-        return ToolResult(content=[], structured_content=structured.model_dump())
+        _handle_image_generation_error(e)
 
 
 @app.tool(
@@ -261,8 +253,7 @@ async def mcp_get_model_capabilities(
         return CapabilitiesResponse(capabilities=capabilities)
 
     except Exception as e:
-        logger.error(f"Error getting capabilities: {e}")
-        return CapabilitiesResponse(ok=False, capabilities=[])
+        _handle_image_generation_error(e)
 
 
 def main() -> None:

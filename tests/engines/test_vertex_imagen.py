@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from image_gen_mcp.engines.diffusion.vertex_imagen import VertexImagen
+from image_gen_mcp.exceptions import ValidationError as EditValidationError
 from image_gen_mcp.schema import ImageEditRequest
 from image_gen_mcp.shard.enums import Model, Provider
 
@@ -104,12 +105,10 @@ async def test_edit_with_base_image(mock_pil_open, mock_client_class, mock_crede
             # Call edit method
             response = await engine.edit(req)
 
-            # Verify response
-            assert response.ok is True
+            # Verify response (no legacy ok field)
             assert response.model == Model.IMAGEN_3_CAPABILITY
             assert len(response.content) == 1
             assert response.content[0].type == "resource"
-            # Engine now returns PNG images (output_mime_type set to image/png)
             assert response.content[0].resource.mimeType == "image/png"
 
             # Verify SDK was called correctly
@@ -171,7 +170,6 @@ async def test_edit_with_mask(mock_pil_open, mock_client_class, mock_credentials
             response = await engine.edit(req)
 
             # Verify response
-            assert response.ok is True
             assert response.model == Model.IMAGEN_3_CAPABILITY
             assert len(response.content) == 1
 
@@ -215,14 +213,9 @@ async def test_edit_unsupported_model():
         req = ImageEditRequest(prompt="Edit this image", images=[test_image], provider=Provider.VERTEX, model=Model.IMAGEN_4_STANDARD, n=1)  # This model doesn't support editing
 
         # Call edit method
-        response = await engine.edit(req)
-
-        # Verify response is an error
-        assert response.ok is False
-        assert response.error is not None
-        assert response.error.code == "unsupported_operation"
-        assert "does not support image editing" in response.error.message
-        assert "imagen-3.0-capability-001" in response.error.message
+        # Expect a validation style error to be raised instead of error response
+        with pytest.raises(EditValidationError):
+            await engine.edit(req)
 
     finally:
         os.remove(test_image)

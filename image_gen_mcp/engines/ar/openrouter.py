@@ -5,10 +5,14 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
+from ...exceptions import (
+    NoImagesGeneratedError,
+    ProviderError,
+    UnsupportedOperationError,
+)
 from ...schema import (
     CapabilityReport,
     EmbeddedResource,
-    Error,
     ImageEditRequest,
     ImageGenerateRequest,
     ImageResponse,
@@ -129,32 +133,17 @@ class OpenRouterAR(ImageEngine):
 
     # Error handling
 
-    def _create_provider_error(self, model: Model, normlog: dict[str, Any], dropped: list[str], exception: Exception) -> ImageResponse:
-        """Create error response for provider API failures."""
-        return ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code=C.ERROR_CODE_PROVIDER_ERROR, message=augment_with_capability_tip(str(exception))),
-        )
+    def _raise_provider_error(self, model: Model, normlog: dict[str, Any], dropped: list[str], exception: Exception) -> None:
+        """Raise ProviderError for API failures."""
+        raise ProviderError(augment_with_capability_tip(str(exception)), Provider.OPENROUTER)
 
-    def _create_no_images_error(self, model: Model, normlog: dict[str, Any], dropped: list[str], raw_shape: list[str]) -> ImageResponse:
-        """Create error response when no images are found in response."""
-        return ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code=OpenRouterErrorType.NO_IMAGES.value, message="No images found in OpenRouter response"),
-        )
+    def _raise_no_images_error(self, model: Model, normlog: dict[str, Any], dropped: list[str], raw_shape: list[str]) -> None:
+        """Raise NoImagesGeneratedError when no images are found in response."""
+        raise NoImagesGeneratedError(Provider.OPENROUTER, model.value)
 
-    def _create_edit_not_supported_error(self, model: Model) -> ImageResponse:
-        """Create error response for unsupported edit operations."""
-        return ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code=OpenRouterErrorType.EDIT_NOT_SUPPORTED.value, message="Edit is not supported via OpenRouter for this model."),
-        )
+    def _raise_edit_not_supported_error(self, model: Model) -> None:
+        """Raise UnsupportedOperationError for edit operations."""
+        raise UnsupportedOperationError("edit", Provider.OPENROUTER, model.value)
 
     # Unsupported-field helpers removed; engine always drops unsupported fields.
 
@@ -269,15 +258,13 @@ class OpenRouterAR(ImageEngine):
             # Convert to pure dict to reuse robust extraction
             resp_json = completion.model_dump() if hasattr(completion, "model_dump") else getattr(completion, "to_dict", lambda: {})()
             images = self._extract_images_from_response(resp_json)
-
             if not images:
-                raw_shape = list(resp_json.keys()) if isinstance(resp_json, dict) else []
-                return self._create_no_images_error(model, normlog, dropped, raw_shape)
+                self._raise_no_images_error(model, normlog, dropped, [])
 
-            return ImageResponse(ok=True, content=images, model=model)
+            return ImageResponse(content=images, model=model)
 
-        except Exception as e:  # pragma: no cover - network/runtime
-            return self._create_provider_error(model, normlog, dropped, e)
+        except Exception as e:  # pragma: no cover - provider failure path
+            self._raise_provider_error(model, normlog, dropped, e)
 
     # -------------------------------- edit ------------------------------- #
     async def edit(self, req: ImageEditRequest) -> ImageResponse:  # type: ignore[override]
@@ -324,23 +311,12 @@ class OpenRouterAR(ImageEngine):
             images = self._extract_images_from_response(resp_json)
 
             if not images:
-                # Include top-level keys to aid debugging
-                return ImageResponse(
-                    ok=False,
-                    content=[],
-                    model=model,
-                    error=Error(code=OpenRouterErrorType.NO_IMAGES.value, message="No images found in OpenRouter response"),
-                )
+                self._raise_no_images_error(model, normlog, [], [])
 
-            return ImageResponse(ok=True, content=images, model=model)
+            return ImageResponse(content=images, model=model)
 
         except Exception as e:  # pragma: no cover - network/runtime
-            return ImageResponse(
-                ok=False,
-                content=[],
-                model=model,
-                error=Error(code=C.ERROR_CODE_PROVIDER_ERROR, message=augment_with_capability_tip(str(e))),
-            )
+            self._raise_provider_error(model, normlog, [], e)
 
 
 __all__ = ["OpenRouterAR"]

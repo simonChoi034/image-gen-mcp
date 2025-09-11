@@ -4,7 +4,7 @@ import importlib
 
 from loguru import logger
 
-from ..schema import CapabilityReport, Error, ImageResponse
+from ..schema import CapabilityReport, Error
 from ..settings import get_settings, Settings
 from ..shard import constants as C
 from ..shard.enums import Model, Provider
@@ -211,22 +211,22 @@ class ModelFactory:
         return engine_class(provider=effective_provider)
 
     @classmethod
-    def validate_and_create(cls, provider: Provider, model: Model) -> tuple[ImageEngine | None, ImageResponse | None]:
+    def validate_and_create(cls, provider: Provider, model: Model) -> ImageEngine | None:
         """
         Validate and create an engine, returning either the engine or a formatted error response.
         """
         try:
             engine = cls.create(provider=provider, model=model)
-            return engine, None
+            return engine
         except ProviderUnavailableError as e:
             err = Error(
                 code=C.ERROR_CODE_PROVIDER_UNAVAILABLE,
                 message=augment_with_capability_tip(str(e)),
             )
-            return None, ImageResponse(ok=False, content=[], model=model, error=err)
+            raise ValueError(str(err)) from e
         except EngineResolutionError as e:
             err = Error(code="validation_error", message=augment_with_capability_tip(str(e)))
-            return None, ImageResponse(ok=False, content=[], model=model, error=err)
+            raise ValueError(str(err)) from e
 
     @classmethod
     def get_supported_models(cls, provider: Provider | None = None) -> list[Model]:

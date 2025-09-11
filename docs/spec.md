@@ -69,17 +69,18 @@ Tools:
 
 - `generate_image(...)` — generate images. Accepts named parameters corresponding to the fields in `ImageGenerateRequest`.
 - `edit_image(...)` — edit images with an optional mask. Accepts named parameters corresponding to the fields in `ImageEditRequest`.
-- `get_model_capabilities(provider?)` — discover enabled engines and models. Optional parameter: `provider`. Returns `CapabilitiesResponse` which contains `{ ok: true, capabilities: CapabilityReport[] }`.
+- `get_model_capabilities(provider?)` — discover enabled engines and models. Optional parameter: `provider`. Returns a `CapabilitiesResponse` JSON object with a top-level `capabilities` array.
+
+Note: the codebase no longer relies on a top-level `ok` boolean in tool responses; successful discovery responses return `capabilities`. Engine/runtime errors are surfaced by raising structured exceptions which FastMCP converts into MCP `ToolError` responses for clients.
 
 Example `get_model_capabilities` response:
 
 ```json
 // request
-// get_model_capabilities({ provider: "openai" })
+// get_model_capabilities({ "provider": "openai" })
 
 // response (structure based on src/schema.py)
 {
-  "ok": true,
   "capabilities": [
     {
       "provider": "openai",
