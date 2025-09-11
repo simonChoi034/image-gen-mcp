@@ -92,6 +92,7 @@ class DalleDiffusion(ImageEngine):
                     supports_negative_prompt=False,
                     supports_background=False,
                     max_n=1,
+                    supports_generation=True,
                     supports_edit=False,
                     supports_mask=False,
                 )

@@ -128,12 +128,13 @@ NOTE: Imagen image editing is only supported by the `imagen-3.0-capability-001` 
 
 Model support notes:
 
-- Imagen image editing: only `imagen-3.0-capability-001` supports image editing operations. Other Imagen models listed below are generation-only and do not support editing.
+- Imagen image editing: only `imagen-3.0-capability-001` supports image editing operations. Most other Imagen models do not support editing.
+- Important: `imagen-3.0-capability-001` is an edit-capable model only and does not support standalone image generation. Use the Imagen generation models listed below for generation requests.
 - Imagen generation models supported by this server:
   - `imagen-4.0-generate-001`
   - `imagen-4.0-fast-generate-001`
   - `imagen-4.0-ultra-generate-001`
-  - `imagen-3.0-capability-001` (also supports editing)
+  - `imagen-3.0-generate-002`
 
 Gemini 2.5 Flash Image (native)
 

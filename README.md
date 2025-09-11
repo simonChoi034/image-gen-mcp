@@ -271,7 +271,7 @@ Routing is handled by a `ModelFactory` that maps model → engine. A compact, cu
 | `imagen-3.0-generate-002` | Diffusion | `vertex` | ✅ | ❌ | — |
 | `imagen-4.0-fast-generate-001` | Diffusion | `vertex` | ✅ | ❌ | — |
 | `imagen-4.0-ultra-generate-001` | Diffusion | `vertex` | ✅ | ❌ | — |
-| `imagen-3.0-capability-001` | Diffusion | `vertex` | ✅ | ✅ | ✅ (mask via mask config) |
+| `imagen-3.0-capability-001` | Diffusion | `vertex` | ❌ | ✅ | ✅ (mask via mask config) |
 | `google/gemini-2.5-flash-image-preview` | AR | `openrouter` | ✅ | ✅ (maskless) | ❌ |
 
 ### Provider Model Support

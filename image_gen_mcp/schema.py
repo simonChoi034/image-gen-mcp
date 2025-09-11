@@ -74,6 +74,7 @@ class ModelCapability(BaseModel):
     supports_negative_prompt: bool | None = Field(default=None, description="Whether negative_prompt is honored (omit if shared).")
     supports_background: bool | None = Field(default=None, description="Whether background transparency is honored (omit if shared).")
     max_n: int | None = Field(default=None, description="Maximum images per request for this model (omit if shared).")
+    supports_generation: bool | None = Field(default=None, description="Whether standalone image generation is supported for this model (omit if shared).")
     supports_edit: bool | None = Field(default=None, description="Whether edit operations are supported for this model (omit if shared).")
     supports_mask: bool | None = Field(default=None, description="Whether masking is supported during edit (omit if shared).")
     supports_multi_image_edit: bool | None = Field(

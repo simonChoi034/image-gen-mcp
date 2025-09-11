@@ -16,6 +16,7 @@ from .schema import (
     CapabilitiesResponse,
     ImageEditRequest,
     ImageGenerateRequest,
+    ImageToolStructured,
 )
 from .shard.enums import (
     Background,
@@ -108,6 +109,14 @@ async def mcp_generate_image(
             background=background,
             directory=directory,
         )
+
+        # Validate generation capability before creating engine
+        validation_error = ModelFactory.validate_generation_request(req.model)
+        if validation_error:
+            # Return a structured ToolResult containing the validation Error so
+            # clients receive a clear JSON error rather than a generic message.
+            structured = ImageToolStructured(model=req.model, image_count=0, images=[], meta={}, error=validation_error)
+            return ToolResult(content=[], structured_content=structured.model_dump())
 
         # Use factory's integrated validation and creation
         engine = ModelFactory.validate_and_create(provider=req.provider, model=req.model)

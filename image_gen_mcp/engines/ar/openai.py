@@ -125,6 +125,7 @@ class OpenAIAR(ImageEngine):
                     supports_negative_prompt=True,
                     supports_background=True,
                     max_n=4,
+                    supports_generation=True,
                     supports_edit=True,
                     supports_mask=True,
                     supports_multi_image_edit=True,

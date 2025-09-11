@@ -36,13 +36,15 @@ def test_vertex_imagen_capabilities():
     imagen_4 = next(m for m in caps.models if m.model == Model.IMAGEN_4_STANDARD)
     assert imagen_4.supports_edit is False
     assert imagen_4.supports_mask is False
+    assert imagen_4.supports_generation is True
     assert imagen_4.supports_negative_prompt is True
     assert imagen_4.max_n == 4
 
-    # Check that only imagen-3.0-capability-001 supports editing
+    # Check that only imagen-3.0-capability-001 supports editing (but not generation)
     imagen_3_capability = next(m for m in caps.models if m.model == Model.IMAGEN_3_CAPABILITY)
     assert imagen_3_capability.supports_edit is True
     assert imagen_3_capability.supports_mask is True
+    assert imagen_3_capability.supports_generation is False
     assert imagen_3_capability.supports_negative_prompt is True
     assert imagen_3_capability.max_n == 4
 
