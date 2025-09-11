@@ -388,7 +388,8 @@ jobs:
         with:
           tag_name: ${{ needs.validate-release.outputs.release_tag }}
           name: Release ${{ needs.validate-release.outputs.release_tag }}
-          body: |
+          generate_release_notes: true
+          append_body: |
             Automated release created via manual trigger.
           files: |
             dist/*.whl
