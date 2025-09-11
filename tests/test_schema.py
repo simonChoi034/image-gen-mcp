@@ -91,25 +91,17 @@ def test_image_edit_request_with_mask():
 
 
 def test_image_response_success():
-    """Test ImageResponse for successful response."""
-    resp = ImageResponse(ok=True, content=[], model=Model.GPT_IMAGE_1)
-
-    assert resp.ok is True
+    """Test ImageResponse success shape (no legacy ok/error)."""
+    resp = ImageResponse(content=[], model=Model.GPT_IMAGE_1)
     assert resp.content == []
     assert resp.model == Model.GPT_IMAGE_1
-    assert resp.error is None
 
 
-def test_image_response_error():
-    """Test ImageResponse for error response."""
+def test_error_model_roundtrip():
+    """Ensure Error model still validates independently."""
     error = Error(code="provider_unavailable", message="OpenAI provider not configured")
-    resp = ImageResponse(ok=False, content=[], model=Model.GPT_IMAGE_1, error=error)
-
-    assert resp.ok is False
-    assert resp.content == []
-    assert resp.error is not None
-    assert resp.error.code == "provider_unavailable"
-    assert resp.error.message == "OpenAI provider not configured"
+    assert error.code == "provider_unavailable"
+    assert error.message == "OpenAI provider not configured"
 
 
 def test_model_capability():
@@ -137,13 +129,10 @@ def test_capability_report():
 
 
 def test_capabilities_response():
-    """Test CapabilitiesResponse structure."""
+    """Test CapabilitiesResponse structure (legacy ok removed)."""
     model_cap = ModelCapability(model=Model.GPT_IMAGE_1)
     report = CapabilityReport(provider=Provider.OPENAI, family=Family.AR, models=[model_cap])
-
-    resp = CapabilitiesResponse(ok=True, capabilities=[report])
-
-    assert resp.ok is True
+    resp = CapabilitiesResponse(capabilities=[report])
     assert len(resp.capabilities) == 1
     assert resp.capabilities[0].provider == Provider.OPENAI
 
@@ -168,27 +157,19 @@ def test_error_with_details():
 
 
 def test_image_response_structured_content():
-    """Test ImageResponse structured content generation."""
-    resp = ImageResponse(ok=True, content=[], model=Model.GPT_IMAGE_1)
-
+    """Test ImageResponse structured content generation (legacy ok removed)."""
+    resp = ImageResponse(content=[], model=Model.GPT_IMAGE_1)
     structured = resp.build_structured_from_response()
-
-    assert structured.ok is True
     assert structured.model == Model.GPT_IMAGE_1
-    assert structured.error is None
+    assert structured.image_count == 0
 
 
-def test_image_response_structured_content_with_error():
-    """Test ImageResponse structured content with error."""
-    error = Error(code="test", message="Test error")
-    resp = ImageResponse(ok=False, content=[], model=Model.GPT_IMAGE_1, error=error)
-
-    structured = resp.build_structured_from_response()
-
-    assert structured.ok is False
-    assert structured.error is not None
-    assert structured.error.code == "test"
-    assert structured.error.message == "Test error"
+def test_image_tool_structured_basic():
+    descriptor = ImageDescriptor(uri="image://test", name="test.png")
+    structured = ImageToolStructured(model=Model.GPT_IMAGE_1, image_count=1, images=[descriptor])
+    assert structured.model == Model.GPT_IMAGE_1
+    assert structured.image_count == 1
+    assert len(structured.images) == 1
 
 
 def test_embedded_resource():
@@ -220,12 +201,7 @@ def test_image_descriptor():
     assert descriptor.mimeType == "image/png"
 
 
-def test_image_tool_structured():
-    """Test ImageToolStructured structure."""
-    descriptor = ImageDescriptor(uri="image://test", name="test.png")
-    structured = ImageToolStructured(ok=True, model=Model.GPT_IMAGE_1, image_count=1, images=[descriptor])
-
-    assert structured.ok is True
-    assert structured.model == Model.GPT_IMAGE_1
-    assert structured.image_count == 1
-    assert len(structured.images) == 1
+def test_image_tool_structured_zero_images():
+    structured = ImageToolStructured(model=Model.GPT_IMAGE_1, image_count=0, images=[])
+    assert structured.image_count == 0
+    assert structured.images == []

@@ -5,10 +5,14 @@ from typing import Any
 
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 
+from ...exceptions import (
+    NoImagesGeneratedError,
+    ProviderError,
+    UnsupportedOperationError,
+)
 from ...schema import (
     CapabilityReport,
     EmbeddedResource,
-    Error,
     ImageEditRequest,
     ImageGenerateRequest,
     ImageResponse,
@@ -95,12 +99,6 @@ class DalleDiffusion(ImageEngine):
         )
 
     # Client management
-    def _select_provider(self, req_provider: Provider | None) -> Provider:
-        """Select provider - prefer request provider if compatible, otherwise use engine's provider."""
-        if req_provider and req_provider == self.provider:
-            return req_provider
-        return self.provider
-
     def _openai_client(self) -> AsyncOpenAI:
         if not settings.openai_api_key:
             raise ValueError("OPENAI_API_KEY environment variable must be set to use OpenAI provider")
@@ -157,33 +155,17 @@ class DalleDiffusion(ImageEngine):
         return resp_format, normlog
 
     # Error handling
-    def _create_provider_error(self, model: Model, provider: Provider, normlog: dict[str, Any], exception: Exception) -> ImageResponse:
-        """Create error response for provider API failures."""
+    def _raise_provider_error(self, model: Model, provider: Provider, normlog: dict[str, Any], exception: Exception) -> None:
+        """Raise ProviderError for API failures."""
+        raise ProviderError(augment_with_capability_tip(str(exception)), provider)
 
-        return ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code=C.ERROR_CODE_PROVIDER_ERROR, message=augment_with_capability_tip(str(exception))),
-        )
+    def _raise_no_images_error(self, model: Model, provider: Provider, normlog: dict[str, Any]) -> None:
+        """Raise NoImagesGeneratedError when no images are generated."""
+        raise NoImagesGeneratedError(provider, model.value)
 
-    def _create_no_images_error(self, model: Model, provider: Provider, normlog: dict[str, Any]) -> ImageResponse:
-        """Create error response when no images are generated."""
-        return ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code=DalleErrorType.NO_IMAGES.value, message="No image content in response"),
-        )
-
-    def _create_edit_not_supported_error(self, model: Model, provider: Provider) -> ImageResponse:
-        """Create error response for unsupported edit operations."""
-        return ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code=DalleErrorType.EDIT_NOT_SUPPORTED.value, message="DALL·E 3 edits are not supported; use GPT-Image-1."),
-        )
+    def _raise_edit_not_supported_error(self, model: Model, provider: Provider) -> None:
+        """Raise UnsupportedOperationError for edit operations."""
+        raise UnsupportedOperationError("edit", provider, model.value)
 
     # Response processing
     def _process_image_data(self, result: Any, want_b64: bool) -> list[ResourceContent]:
@@ -217,7 +199,7 @@ class DalleDiffusion(ImageEngine):
     # API operations
     async def generate(self, req: ImageGenerateRequest) -> ImageResponse:  # type: ignore[override]
         """Generate images using DALL·E 3 via OpenAI or Azure OpenAI."""
-        provider = self._select_provider(getattr(req, "provider", None))
+        provider = req.provider
         model = req.model
 
         # Normalize parameters
@@ -243,16 +225,16 @@ class DalleDiffusion(ImageEngine):
 
             images = self._process_image_data(result, want_b64)
             if not images:
-                return self._create_no_images_error(model, provider, normlog)
+                self._raise_no_images_error(model, provider, normlog)
 
-            return ImageResponse(ok=True, content=images, model=model)
+            return ImageResponse(content=images, model=model)
 
         except Exception as e:  # pragma: no cover - provider failure path
-            return self._create_provider_error(model, provider, normlog, e)
+            self._raise_provider_error(model, provider, normlog, e)
 
     # -------------------------------- edit ------------------------------- #
     async def edit(self, req: ImageEditRequest) -> ImageResponse:  # type: ignore[override]
         """DALL·E 3 does not support edit operations."""
-        provider = self._select_provider(getattr(req, "provider", None))
-        model = req.model or Model.DALL_E_3
-        return self._create_edit_not_supported_error(model, provider)
+        provider = req.provider
+        model = req.model
+        self._raise_edit_not_supported_error(model, provider)

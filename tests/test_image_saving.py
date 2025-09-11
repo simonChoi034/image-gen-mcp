@@ -134,7 +134,6 @@ class TestSaveImagesToDisk:
             content.append(ResourceContent(type="resource", resource=resource))
 
         return ImageResponse(
-            ok=True,
             content=content,
             model=Model.DALL_E_3,
         )
@@ -189,7 +188,6 @@ class TestSaveImagesToDisk:
             description="Test image with invalid data",
         )
         response = ImageResponse(
-            ok=True,
             content=[ResourceContent(type="resource", resource=resource)],
             model=Model.DALL_E_3,
         )
@@ -216,7 +214,6 @@ class TestSaveImagesToDisk:
 
         # Create response with mixed content types
         response = ImageResponse(
-            ok=True,
             content=[
                 ResourceContent(type="text", resource=dummy_resource),  # Will be ignored
                 ResourceContent(
@@ -259,7 +256,6 @@ class TestImageDescriptorWithFilePath:
             file_path="/tmp/test/image.png",
         )
         response = ImageResponse(
-            ok=True,
             content=[ResourceContent(type="resource", resource=resource)],
             model=Model.DALL_E_3,
         )
@@ -285,7 +281,6 @@ class TestImageDescriptorWithFilePath:
             # file_path=None (default)
         )
         response = ImageResponse(
-            ok=True,
             content=[ResourceContent(type="resource", resource=resource)],
             model=Model.DALL_E_3,
         )

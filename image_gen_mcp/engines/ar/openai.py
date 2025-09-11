@@ -8,10 +8,12 @@ from typing import Any
 
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 
+from ...exceptions import (
+    ProviderError,
+)
 from ...schema import (
     CapabilityReport,
     EmbeddedResource,
-    Error,
     ImageEditRequest,
     ImageGenerateRequest,
     ImageResponse,
@@ -202,24 +204,9 @@ class OpenAIAR(ImageEngine):
 
     # Error handling
 
-    def _create_provider_error(self, model: Model, provider: Provider, normlog: dict[str, Any], dropped: list[str], exception: Exception) -> ImageResponse:
-        """Create error response for provider API failures."""
-        return ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code=C.ERROR_CODE_PROVIDER_ERROR, message=augment_with_capability_tip(str(exception))),
-        )
-
-    def _create_provider_edit_error(self, model: Model, provider: Provider, normlog: dict[str, Any], dropped: list[str], exception: Exception) -> ImageResponse:
-        """Create error response for provider API failures in edit operations."""
-
-        return ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code=C.ERROR_CODE_PROVIDER_ERROR, message=augment_with_capability_tip(str(exception))),
-        )
+    def _raise_provider_error(self, model: Model, provider: Provider, normlog: dict[str, Any], dropped: list[str], exception: Exception) -> None:
+        """Raise ProviderError for API failures."""
+        raise ProviderError(augment_with_capability_tip(str(exception)), provider)
 
     def _process_image_data(self, result: Any, response_format: str) -> list[ResourceContent]:
         """Process OpenAI image data and return ResourceContent objects."""
@@ -317,10 +304,10 @@ class OpenAIAR(ImageEngine):
                 background=native.get("background"),
             )
             images = self._process_image_data(result, "b64_json")  # Azure returns base64
-            return ImageResponse(ok=True, content=images, model=model)
+            return ImageResponse(content=images, model=model)
 
         except Exception as e:  # pragma: no cover - provider failure path
-            return self._create_provider_error(model, provider, normlog, dropped, e)
+            self._raise_provider_error(model, provider, normlog, dropped, e)
 
     async def edit(self, req: ImageEditRequest) -> ImageResponse:  # type: ignore[override]
         provider = self._select_provider(getattr(req, "provider", None))
@@ -366,7 +353,7 @@ class OpenAIAR(ImageEngine):
                     **{"mask": mask_io} if mask_io else {},  # type: ignore
                 )
                 images = self._process_image_data(result, "b64_json")  # Azure returns base64
-                return ImageResponse(ok=True, content=images, model=model)
+                return ImageResponse(content=images, model=model)
 
         except Exception as e:  # pragma: no cover - provider failure path
-            return self._create_provider_edit_error(model, provider, normlog, dropped, e)
+            self._raise_provider_error(model, provider, normlog, dropped, e)

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from base64 import b64decode
 from collections.abc import Mapping
 from typing import Any
 
+from fastmcp.utilities.types import Image as FastMCPImage  # local import to avoid hard deps in type space
 from pydantic import BaseModel, Field, field_validator
 
 from .shard.enums import (
@@ -31,6 +33,9 @@ class Error(BaseModel):
         default=None,
         description="Optional provider/debug details; treat as best-effort and unstable for parsing.",
     )
+
+    def __str__(self) -> str:
+        return f"[{self.code}] {self.message} {self.details or ''}".strip()
 
 
 # ------------------------------- Image payloads ----------------------------- #
@@ -91,7 +96,6 @@ class CapabilityReport(BaseModel):
 class CapabilitiesResponse(BaseModel):
     """Response for get_model_capabilities tool."""
 
-    ok: bool = Field(default=True, description="Always true when the request succeeds.")
     capabilities: list[CapabilityReport] = Field(default_factory=list, description="List of enabled engines based on credentials.")
 
 
@@ -134,7 +138,6 @@ class ImageDescriptor(BaseModel):
 class ImageToolStructured(BaseModel):
     """Public structured output for image tools without binary payloads."""
 
-    ok: bool = Field(default=True, description="True on success; false when an error occurred.")
     model: Model = Field(description="Model used for the operation.")
     image_count: int = Field(default=0, description="Number of images returned in content blocks.")
     images: list[ImageDescriptor] = Field(default_factory=list, description="Lightweight metadata for returned images.")
@@ -144,12 +147,14 @@ class ImageToolStructured(BaseModel):
 
 # Internal response type for engines (not exported)
 class ImageResponse(BaseModel):
-    """Internal response format used by engines before conversion to embedded resources."""
+    """Internal response format used by engines before conversion to embedded resources.
 
-    ok: bool
+    Note: This is only used for successful responses. Engines should raise exceptions
+    for error conditions instead of returning ImageResponse with error field.
+    """
+
     content: list[ResourceContent] = Field(default_factory=list)
     model: Model
-    error: Error | None = None
 
     def build_structured_from_response(self) -> ImageToolStructured:
         """Convert internal ImageResponse into minimal, public structured output.
@@ -167,11 +172,9 @@ class ImageResponse(BaseModel):
                 # Skip malformed entries; structured output stays minimal
                 continue
         return ImageToolStructured(
-            ok=self.ok,
             model=self.model,
             image_count=len(descriptors),
             images=descriptors,
-            error=self.error,
         )
 
     def response_to_image_contents(self) -> list[Any]:
@@ -179,9 +182,6 @@ class ImageResponse(BaseModel):
 
         This emits image content only; no JSON blobs are returned to clients.
         """
-        from base64 import b64decode
-
-        from fastmcp.utilities.types import Image as FastMCPImage  # local import to avoid hard deps in type space
 
         def _mime_to_format(mime: str | None) -> str:
             if not mime:

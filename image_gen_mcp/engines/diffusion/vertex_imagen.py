@@ -8,10 +8,15 @@ from google import genai
 from google.genai import types
 from google.oauth2 import service_account
 
+from ...exceptions import (
+    ConfigurationError,
+    NoImagesGeneratedError,
+    ProviderError,
+    ValidationError,
+)
 from ...schema import (
     CapabilityReport,
     EmbeddedResource,
-    Error,
     ImageEditRequest,
     ImageGenerateRequest,
     ImageResponse,
@@ -142,27 +147,26 @@ class VertexImagen(ImageEngine):
         credentials = service_account.Credentials.from_service_account_file(settings.vertex_credentials_path, scopes=SCOPES)
         return genai.Client(vertexai=True, project=settings.vertex_project, location=settings.vertex_location, credentials=credentials)
 
-    def _create_invalid_config_error(self, model: Model, message: str) -> ImageResponse:
-        """Create error response for invalid configuration."""
-        return ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code=ImagenErrorType.INVALID_CONFIG.value, message=message),
-        )
+    # --------------------------------------------------------------------
+    # Exception helpers
+    # --------------------------------------------------------------------
+    def _raise_invalid_config_error(self, message: str) -> None:
+        """Raise configuration error (invalid server or request configuration)."""
+        raise ConfigurationError(message)
 
     # Internal helpers for edit
-    def _create_base_image(self, image_src: str) -> tuple[types.Image, bytes, str] | ImageResponse:
-        """Read image bytes and return a `types.Image` plus the raw bytes and mime type.
+    def _create_base_image(self, image_src: str) -> tuple[types.Image, bytes, str]:
+        """Read image bytes and return a `types.Image` plus raw bytes and mime.
 
-        Returns ImageResponse on error to allow early return from caller.
+        Raises ConfigurationError on failure.
         """
         try:
             image_bytes, image_mime = self.read_image_bytes_and_mime(image_src)
             base_image = types.Image(image_bytes=image_bytes, mime_type=image_mime)
             return base_image, image_bytes, image_mime
-        except Exception:
-            return self._create_invalid_config_error(Model.IMAGEN_3_CAPABILITY, "Failed to create Image object from base image for edit")
+        except Exception as e:  # pragma: no cover - IO/parsing failure
+            self._raise_invalid_config_error("Failed to create Image object from base image for edit")
+            raise e  # unreachable, for type checkers
 
     def _create_mask_ref(self, mask_src: str | None, fallback_bytes: bytes, fallback_mime: str) -> types.MaskReferenceImage | None:
         """Create a MaskReferenceImage from provided mask_src or fallback bytes.
@@ -187,22 +191,17 @@ class VertexImagen(ImageEngine):
         except Exception:
             return None
 
-    def _build_reference_images(self, image_src: str, mask_src: str | None) -> tuple[list[Any], ImageResponse | None]:
-        """Build RawReferenceImage and optional MaskReferenceImage list.
+    def _build_reference_images(self, image_src: str, mask_src: str | None) -> list[Any]:
+        """Build reference images list (base + optional mask).
 
-        Returns a tuple of (reference_images, ImageResponse) where ImageResponse
-        is non-None when an early error occurred (so caller can return it).
+        Raises ConfigurationError if base image cannot be created.
         """
-        base_result = self._create_base_image(image_src)
-        if isinstance(base_result, ImageResponse):
-            return [], base_result
-        base_image, image_bytes, image_mime = base_result
-
+        base_image, image_bytes, image_mime = self._create_base_image(image_src)
         refs: list[Any] = [types.RawReferenceImage(reference_id=1, reference_image=base_image)]
         mask_ref = self._create_mask_ref(mask_src, image_bytes, image_mime)
         if mask_ref:
             refs.append(mask_ref)
-        return refs, None
+        return refs
 
     def _build_edit_config(self, n: int, aspect_ratio: str, negative_prompt: str | None) -> types.EditImageConfig:
         cfg = types.EditImageConfig(
@@ -231,25 +230,12 @@ class VertexImagen(ImageEngine):
         """Map unified orientation to Imagen aspect ratio string using `ImagenAspect`."""
         return ImagenAspect.from_orientation(orientation)
 
-    # Error handling
+    # Error handling -> raise exceptions instead of returning error responses
+    def _raise_provider_error(self, exception: Exception) -> None:
+        raise ProviderError(augment_with_capability_tip(str(exception)), Provider.VERTEX)
 
-    def _create_provider_error(self, model: Model, exception: Exception) -> ImageResponse:
-        """Create error response for provider API failures."""
-        return ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code=C.ERROR_CODE_PROVIDER_ERROR, message=augment_with_capability_tip(str(exception))),
-        )
-
-    def _create_no_images_error(self, model: Model) -> ImageResponse:
-        """Create error response when no images are generated."""
-        return ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code=ImagenErrorType.NO_IMAGES.value, message="No image content in response"),
-        )
+    def _raise_no_images_error(self, model: Model) -> None:
+        raise NoImagesGeneratedError(Provider.VERTEX, model.value)
 
     # Response processing
 
@@ -325,14 +311,23 @@ class VertexImagen(ImageEngine):
             # Extract images from response
             images = self._extract_images_from_response(response)
             if not images:
-                return self._create_no_images_error(model)
+                self._raise_no_images_error(model)
 
-            return ImageResponse(ok=True, content=images, model=model)
+            return ImageResponse(content=images, model=model)
 
         except ValueError as e:
-            return self._create_invalid_config_error(model, str(e))
+            self._raise_invalid_config_error(str(e))
+        except ProviderError:
+            raise
+        except NoImagesGeneratedError:
+            raise
+        except ConfigurationError:
+            raise
         except Exception as e:
-            return self._create_provider_error(model, e)
+            self._raise_provider_error(e)
+
+        # Unreachable; function either returns or raises.
+        raise AssertionError("Unhandled path in generate()")
 
     async def edit(self, req: ImageEditRequest) -> ImageResponse:
         """Edit images using Imagen via Vertex AI with reference images and optional masks."""
@@ -346,16 +341,16 @@ class VertexImagen(ImageEngine):
         try:
             # Validate required input image
             if not req.images or len(req.images) == 0:
-                return self._create_invalid_config_error(model, "images[0] is required for edit")
+                self._raise_invalid_config_error("images[0] is required for edit")
 
             image_src = req.images[0]
             if not image_src:
-                return self._create_invalid_config_error(model, "images[0] is required for edit")
+                self._raise_invalid_config_error("images[0] is required for edit")
 
-            # Early validation - check if model supports editing at all
+            # Early validation - check if model supports editing
             validation_error = ModelFactory.validate_edit_request(model, has_mask=False)
             if validation_error:
-                return ImageResponse(ok=False, content=[], model=model, error=validation_error)
+                raise ValidationError(validation_error.message)
 
             client = self._create_client()
 
@@ -364,15 +359,13 @@ class VertexImagen(ImageEngine):
             aspect_ratio = self._map_aspect_ratio(req.orientation)
 
             # Build reference images (base + optional mask) - helper handles early errors
-            reference_images, err = self._build_reference_images(image_src, req.mask)
-            if err:
-                return err
+            reference_images = self._build_reference_images(image_src, req.mask)
 
             # Final validation - check masking capability if mask is present
             if req.mask and not ModelFactory.model_supports_masking(model):
                 validation_error = ModelFactory.validate_edit_request(model, has_mask=True)
                 if validation_error:
-                    return ImageResponse(ok=False, content=[], model=model, error=validation_error)
+                    raise ValidationError(validation_error.message)
 
             # Build edit config and call API
             edit_config = self._build_edit_config(n, aspect_ratio, req.negative_prompt)
@@ -386,11 +379,21 @@ class VertexImagen(ImageEngine):
             # Extract images from response
             images = self._extract_images_from_response(response)
             if not images:
-                return self._create_no_images_error(model)
+                self._raise_no_images_error(model)
 
-            return ImageResponse(ok=True, content=images, model=model)
+            return ImageResponse(content=images, model=model)
 
         except ValueError as e:
-            return self._create_invalid_config_error(model, str(e))
+            self._raise_invalid_config_error(str(e))
+        except ProviderError:
+            raise
+        except NoImagesGeneratedError:
+            raise
+        except ConfigurationError:
+            raise
+        except ValidationError:
+            raise
         except Exception as e:
-            return self._create_provider_error(model, e)
+            self._raise_provider_error(e)
+
+        raise AssertionError("Unhandled path in edit()")

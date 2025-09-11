@@ -9,10 +9,13 @@ from google.genai import types
 from google.oauth2 import service_account
 from loguru import logger
 
+from ...exceptions import (
+    NoImagesGeneratedError,
+    ProviderError,
+)
 from ...schema import (
     CapabilityReport,
     EmbeddedResource,
-    Error,
     ImageEditRequest,
     ImageGenerateRequest,
     ImageResponse,
@@ -139,29 +142,13 @@ class GeminiAR(ImageEngine):
         normlog["n"] = n
         return native, normlog, dropped
 
-    def _provider_error_generate(self, model: Model, provider: Provider, normlog: dict[str, Any], dropped: list[str], ex: Exception) -> ImageResponse:
-        return ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code=C.ERROR_CODE_PROVIDER_ERROR, message=augment_with_capability_tip(str(ex))),
-        )
+    def _raise_provider_error(self, model: Model, provider: Provider, normlog: dict[str, Any], dropped: list[str], ex: Exception) -> None:
+        """Raise a ProviderError for API failures."""
+        raise ProviderError(augment_with_capability_tip(str(ex)), provider)
 
-    def _provider_error_edit(self, model: Model, provider: Provider, normlog: dict[str, Any], dropped: list[str], ex: Exception) -> ImageResponse:
-        return ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code=C.ERROR_CODE_PROVIDER_ERROR, message=augment_with_capability_tip(str(ex))),
-        )
-
-    def _create_no_images_error(self, model: Model, provider: Provider, normlog: dict[str, Any], dropped: list[str]) -> ImageResponse:
-        return ImageResponse(
-            ok=False,
-            content=[],
-            model=model,
-            error=Error(code=GeminiErrorType.NO_IMAGES.value, message="No images were returned by the model. Try a different prompt or model parameters."),
-        )
+    def _raise_no_images_error(self, model: Model, provider: Provider, normlog: dict[str, Any], dropped: list[str]) -> None:
+        """Raise a NoImagesGeneratedError when model returns no images."""
+        raise NoImagesGeneratedError(provider, model.value)
 
     @staticmethod
     def _collect_images_from_response(resp: types.GenerateContentResponse) -> list[ResourceContent]:
@@ -226,12 +213,12 @@ class GeminiAR(ImageEngine):
 
             images = self._collect_images_from_response(resp)
             if not images:
-                return self._create_no_images_error(model, provider, normlog, dropped)
+                self._raise_no_images_error(model, provider, normlog, dropped)
 
-            return ImageResponse(ok=True, content=images, model=model)
+            return ImageResponse(content=images, model=model)
 
         except Exception as e:  # pragma: no cover - provider failure
-            return self._provider_error_generate(model, provider, normlog, dropped, e)
+            self._raise_provider_error(model, provider, normlog, dropped, e)
 
     async def edit(self, req: ImageEditRequest) -> ImageResponse:  # type: ignore[override]
         provider = self._select_provider(req.provider)
@@ -277,8 +264,8 @@ class GeminiAR(ImageEngine):
 
             images = self._collect_images_from_response(resp)
             if not images:
-                return ImageResponse(ok=False, content=[], model=model, error=Error(code=C.ERROR_CODE_PROVIDER_ERROR, message="No image content in response"))
-            return ImageResponse(ok=True, content=images, model=model)
+                raise ProviderError("No image content in response", provider)
+            return ImageResponse(content=images, model=model)
 
         except Exception as e:  # pragma: no cover - provider failure
-            return self._provider_error_edit(model, provider, normlog, dropped, e)
+            self._raise_provider_error(model, provider, normlog, dropped, e)

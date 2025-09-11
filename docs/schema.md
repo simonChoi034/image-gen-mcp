@@ -19,19 +19,17 @@ Image tools return two complementary channels:
 2. Structured JSON (minimal, stable)
 
 - `ImageToolStructured` — a lightweight, programmatic summary that never contains binary blobs. Fields:
-  - `ok`: boolean
   - `model`: `Model` (model that produced the images)
   - `image_count`: integer (number of images in the `content` blocks)
   - `images`: `ImageDescriptor[]` (each descriptor contains only `uri`, `name`, `mimeType` — no blobs)
   - `meta`: object (provider/runtime metadata and mapping notes)
-  - `error?`: `Error` (present when `ok` is `false`)
+  - `error?`: `Error` (optional; present when an error occurred)
 
 Example envelope
 
 ```
 {
   "structured_content": {
-    "ok": true,
     "model": "gpt-image-1",
     "image_count": 1,
     "images": [
@@ -48,7 +46,6 @@ Error envelope
 ```
 {
   "structured_content": {
-    "ok": false,
     "model": "gpt-image-1",
     "image_count": 0,
     "images": [],
@@ -68,6 +65,7 @@ Tool input/output schemas surfaced to clients. The input for `generate_image` an
 - `generate_image`: input → named parameters from `ImageGenerateRequest`, output → `ImageToolStructured`
 - `edit_image`: input → named parameters from `ImageEditRequest`, output → `ImageToolStructured`
 - `get_model_capabilities`: input → `{ provider?: string }` (named parameter), output → `CapabilitiesResponse`
+  Note: errors occurring during engine execution are surfaced by raising structured exceptions inside the server. FastMCP converts those into proper MCP ToolError responses; the `ImageToolStructured` is used for successful structured summaries and may include an `error` object when engines return a non-exceptional error payload (legacy or provider-specific diagnostic). Engines in this codebase prefer exceptions for error flows.
 
 Note: no blob‑carrying types appear in any structured output schema; image binaries are carried in MCP `ImageContent` blocks.
 
@@ -107,7 +105,10 @@ blocks — `file_path` is informational and points to the on-disk copy the serve
 
 - The server will attempt to create the target directory using the calling user's permissions. If
   directory creation fails, the server falls back to a temporary directory and surfaces an error
-  message in the `structured_content.error` or the `meta` field for observability.
+  message in the `structured_content.error` or the `meta` field for observability. Note that when
+  failures occur during engine execution the server typically raises an exception which the MCP
+  tool wrapper converts to a `ToolError` for clients. In that case clients will receive an MCP
+  error response rather than a successful envelope containing an `error` field.
 - The server does not automatically remove saved files. Clients are responsible for cleanup and
   lifecycle management (e.g., move to long-term storage, delete after use). Consider providing a
   `directory` when you need a predictable, durable location.

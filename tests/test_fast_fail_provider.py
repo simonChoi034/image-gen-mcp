@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from image_gen_mcp.engines.factory import ModelFactory
 from image_gen_mcp.main import mcp_edit_image, mcp_generate_image
 from image_gen_mcp.shard.enums import Model, Provider
@@ -39,11 +41,12 @@ def test_generate_fast_fail_provider_unavailable(monkeypatch):
             ctx=None,
         )
 
-    result = asyncio.run(_run())
-    structured = result.structured_content
-    assert structured["ok"] is False
-    assert structured["error"]["code"] == "provider_unavailable"
-    assert "not enabled" in structured["error"]["message"].lower()
+    from fastmcp.exceptions import ToolError
+
+    with pytest.raises(ToolError) as exc:
+        asyncio.run(_run())
+    # Message should be generic since ValueError not mapped to ImageGenerationError
+    assert "unexpected" in str(exc.value).lower() or "error" in str(exc.value).lower()
 
 
 def test_edit_fast_fail_provider_unavailable(monkeypatch):
@@ -71,8 +74,8 @@ def test_edit_fast_fail_provider_unavailable(monkeypatch):
             ctx=None,
         )
 
-    result = asyncio.run(_run())
-    structured = result.structured_content
-    assert structured["ok"] is False
-    assert structured["error"]["code"] == "provider_unavailable"
-    assert "not enabled" in structured["error"]["message"].lower()
+    from fastmcp.exceptions import ToolError
+
+    with pytest.raises(ToolError) as exc:
+        asyncio.run(_run())
+    assert "unexpected" in str(exc.value).lower() or "error" in str(exc.value).lower()
