@@ -23,6 +23,38 @@
 - Pydantic v2 models in `schema.py` define the public contract; keep field names and enums stable.
 - Run `ruff` and `black` before pushing; keep diffs minimal and cohesive.
 
+### No inline imports
+
+- Do not use function-local (inline) imports anywhere in the codebase. All imports must appear at module top-level.
+- Exception: imports guarded by `if TYPE_CHECKING:` for typing-only imports are allowed.
+
+Rationale: top-level imports avoid surprising runtime side-effects, make static analysis and packaging reliable, and ensure dependency graphs are clear. If an import causes circular import issues, prefer one of:
+
+- move type-only imports into a `if TYPE_CHECKING:` block, or
+- refactor module boundaries (e.g., move shared types into `schema.py`), or
+- use lazy-loading helpers in a single, well-documented location (`engines/factory.py` uses lazy import resolution via `_load_engine_class`).
+
+Example (bad):
+
+```python
+def my_tool():
+    # avoid this
+    from .schema import ImageToolStructured
+
+    ...
+```
+
+Example (good):
+
+```python
+from .schema import ImageToolStructured
+
+
+def my_tool():
+    structured = ImageToolStructured(...)
+    ...
+```
+
 ## Testing Guidelines
 
 - Use `pytest`; place tests under `tests/` mirroring `src/` paths (e.g., `tests/engines/test_openai_ar.py`).

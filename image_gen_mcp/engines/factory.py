@@ -4,7 +4,7 @@ import importlib
 
 from loguru import logger
 
-from ..schema import CapabilityReport, Error
+from ..schema import CapabilityReport, Error, ModelCapability
 from ..settings import get_settings, Settings
 from ..shard import constants as C
 from ..shard.enums import Model, Provider
@@ -47,65 +47,8 @@ PROVIDER_MODELS_MAP: dict[Provider, list[Model]] = {
 }
 
 
-# Model capability definitions
-
-# Models that support image editing
-EDIT_CAPABLE_MODELS: set[Model] = {
-    Model.GPT_IMAGE_1,  # OpenAI AR
-    Model.GEMINI_IMAGE_PREVIEW,  # Gemini AR (maskless)
-    Model.OPENROUTER_GOOGLE_GEMINI_IMAGE,  # OpenRouter Gemini AR (maskless)
-    Model.IMAGEN_3_CAPABILITY,  # Only Imagen model that supports editing
-}
-
-# Models that support masking during editing
-MASK_CAPABLE_MODELS: set[Model] = {
-    Model.GPT_IMAGE_1,  # OpenAI AR
-    Model.IMAGEN_3_CAPABILITY,  # Imagen with mask config support
-}
-
-# Models that only support generation (no editing)
-GENERATION_ONLY_MODELS: set[Model] = {
-    Model.DALL_E_3,
-    Model.IMAGEN_4_STANDARD,
-    Model.IMAGEN_4_FAST,
-    Model.IMAGEN_4_ULTRA,
-    Model.IMAGEN_3_GENERATE,
-}
-
-
-# Capability validation functions
-
-
-def _model_supports_editing(model: Model) -> bool:
-    """Check if a model supports image editing operations."""
-    return model in EDIT_CAPABLE_MODELS
-
-
-def _model_supports_masking(model: Model) -> bool:
-    """Check if a model supports masking during editing."""
-    return model in MASK_CAPABLE_MODELS
-
-
-def _validate_edit_capability(model: Model) -> Error | None:
-    """Validate if a model supports editing. Returns Error if not supported, None if valid."""
-    if not _model_supports_editing(model):
-        return Error(code="unsupported_operation", message=f"Model {model.value} does not support image editing. Only {', '.join(m.value for m in EDIT_CAPABLE_MODELS)} support editing.")
-    return None
-
-
-def _validate_mask_capability(model: Model, has_mask: bool) -> Error | None:
-    """Validate if a model supports masking when a mask is provided. Returns Error if not supported, None if valid."""
-    if has_mask and not _model_supports_masking(model):
-        return Error(code="unsupported_operation", message=f"Model {model.value} does not support masking. Models with mask support: {', '.join(m.value for m in MASK_CAPABLE_MODELS)}")
-    return None
-
-
-# Internal resolution & validation logic
-
-
-def _get_supported_providers_for_model(model: Model) -> list[Provider]:
-    """Get list of providers that support a model."""
-    return [provider for provider, models in PROVIDER_MODELS_MAP.items() if model in models]
+# Dynamic capability discovery cache (stores ModelCapability instances)
+_capability_cache: dict[Model, ModelCapability] = {}
 
 
 def _load_engine_class(path_or_cls: type[ImageEngine] | str) -> type[ImageEngine]:
@@ -120,6 +63,124 @@ def _load_engine_class(path_or_cls: type[ImageEngine] | str) -> type[ImageEngine
         cls = getattr(module, class_name)
         return cls
     return path_or_cls
+
+
+# Dynamic capability discovery functions
+
+
+def _get_model_capabilities(model: Model) -> ModelCapability:
+    """Get a `ModelCapability` for a model by instantiating its engine.
+
+    Returns a `ModelCapability` instance. Uses caching to avoid repeated instantiation.
+    """
+    if model in _capability_cache:
+        return _capability_cache[model]
+
+    # Find a provider that supports this model
+    provider = None
+    for p, models in PROVIDER_MODELS_MAP.items():
+        if model in models:
+            provider = p
+            break
+
+    # Default fallback capability (all False)
+    fallback = ModelCapability(model=model, supports_generation=False, supports_edit=False, supports_mask=False)
+    if not provider:
+        _capability_cache[model] = fallback
+        return fallback
+
+    try:
+        # Instantiate engine to get capabilities (safe: only calling get_capability_report)
+        engine_class_path = MODEL_ENGINE_MAP.get(model)
+        if not engine_class_path:
+            _capability_cache[model] = fallback
+            return fallback
+
+        engine_class = _load_engine_class(engine_class_path)
+        engine = engine_class(provider=provider)
+        report = engine.get_capability_report()
+
+        # Find this model's capabilities in the report
+        model_capability: ModelCapability | None = None
+        for model_cap in report.models:
+            if model_cap.model == model:
+                model_capability = model_cap
+                break
+
+        if model_capability is None:
+            model_capability = fallback
+
+        _capability_cache[model] = model_capability
+        return model_capability
+
+    except Exception as e:
+        logger.warning(f"Failed to get capabilities for model {model.value}: {e}")
+        _capability_cache[model] = fallback
+        return fallback
+
+
+def _model_supports_editing(model: Model) -> bool:
+    """Check if a model supports image editing operations."""
+    return bool(_get_model_capabilities(model).supports_edit)
+
+
+def _model_supports_masking(model: Model) -> bool:
+    """Check if a model supports masking during editing."""
+    return bool(_get_model_capabilities(model).supports_mask)
+
+
+def _model_supports_generation(model: Model) -> bool:
+    """Check if a model supports standalone image generation."""
+    return bool(_get_model_capabilities(model).supports_generation)
+
+
+def _get_models_with_capability(capability: str) -> list[Model]:
+    """Get all models that support a specific capability.
+
+    `capability` should be the attribute name on `ModelCapability`, e.g.
+    'supports_generation', 'supports_edit', or 'supports_mask'.
+    """
+    models: list[Model] = []
+    for model in MODEL_ENGINE_MAP.keys():
+        cap = _get_model_capabilities(model)
+        if getattr(cap, capability, False):
+            models.append(model)
+    return models
+
+
+def _validate_edit_capability(model: Model) -> Error | None:
+    """Validate if a model supports editing. Returns Error if not supported, None if valid."""
+    if not _model_supports_editing(model):
+        edit_models = _get_models_with_capability("supports_edit")
+        model_list = ", ".join(m.value for m in edit_models)
+        return Error(code="unsupported_operation", message=f"Model {model.value} does not support image editing. Models that support editing: {model_list}")
+    return None
+
+
+def _validate_mask_capability(model: Model, has_mask: bool) -> Error | None:
+    """Validate if a model supports masking when a mask is provided. Returns Error if not supported, None if valid."""
+    if has_mask and not _model_supports_masking(model):
+        mask_models = _get_models_with_capability("supports_mask")
+        model_list = ", ".join(m.value for m in mask_models)
+        return Error(code="unsupported_operation", message=f"Model {model.value} does not support masking. Models with mask support: {model_list}")
+    return None
+
+
+def _validate_generation_capability(model: Model) -> Error | None:
+    """Validate if a model supports generation. Returns Error if not supported, None if valid."""
+    if not _model_supports_generation(model):
+        gen_models = _get_models_with_capability("supports_generation")
+        model_list = ", ".join(m.value for m in gen_models)
+        return Error(code="unsupported_operation", message=f"Model {model.value} does not support standalone image generation. Models that support generation: {model_list}")
+    return None
+
+
+# Internal resolution & validation logic
+
+
+def _get_supported_providers_for_model(model: Model) -> list[Provider]:
+    """Get list of providers that support a model."""
+    return [provider for provider, models in PROVIDER_MODELS_MAP.items() if model in models]
 
 
 def _create_resolution_error_message(provider: Provider | None, model: Model | None) -> str:
@@ -336,6 +397,16 @@ class ModelFactory:
     def model_supports_masking(cls, model: Model) -> bool:
         """Check if a model supports masking during editing."""
         return _model_supports_masking(model)
+
+    @classmethod
+    def validate_generation_request(cls, model: Model) -> Error | None:
+        """Validate if a model supports generation operations. Returns Error if validation fails, None if valid."""
+        return _validate_generation_capability(model)
+
+    @classmethod
+    def model_supports_generation(cls, model: Model) -> bool:
+        """Check if a model supports standalone image generation."""
+        return _model_supports_generation(model)
 
 
 __all__ = ["ModelFactory"]

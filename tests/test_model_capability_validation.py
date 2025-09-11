@@ -94,24 +94,60 @@ def test_validate_edit_request_comprehensive():
     assert "gemini-2.5-flash-image-preview does not support masking" in error.message
 
 
-def test_model_capability_constants():
-    """Test that capability constants are correctly defined."""
-    from image_gen_mcp.engines.factory import (
-        EDIT_CAPABLE_MODELS,
-        GENERATION_ONLY_MODELS,
-        MASK_CAPABLE_MODELS,
-    )
+def test_generation_capability_validation():
+    """Test that ModelFactory correctly validates generation capability."""
+    # Models that support generation
+    generation_models = [
+        Model.GPT_IMAGE_1,
+        Model.DALL_E_3,
+        Model.GEMINI_IMAGE_PREVIEW,
+        Model.OPENROUTER_GOOGLE_GEMINI_IMAGE,
+        Model.IMAGEN_4_STANDARD,
+        Model.IMAGEN_4_FAST,
+        Model.IMAGEN_4_ULTRA,
+        Model.IMAGEN_3_GENERATE,
+    ]
 
-    # Verify no overlap between editing and generation-only models
-    assert len(EDIT_CAPABLE_MODELS & GENERATION_ONLY_MODELS) == 0, "Models can't be both edit-capable and generation-only"
+    for model in generation_models:
+        assert ModelFactory.model_supports_generation(model), f"{model.value} should support generation"
+        # These models should pass validation
+        error = ModelFactory.validate_generation_request(model)
+        assert error is None, f"{model.value} should pass generation validation"
 
-    # Verify mask-capable models are subset of edit-capable models
-    assert MASK_CAPABLE_MODELS.issubset(EDIT_CAPABLE_MODELS), "All mask-capable models must be edit-capable"
+    # Models that don't support generation (edit-only)
+    edit_only_models = [
+        Model.IMAGEN_3_CAPABILITY,
+    ]
 
-    # Verify expected models are in the right sets
-    assert Model.IMAGEN_3_CAPABILITY in EDIT_CAPABLE_MODELS
-    assert Model.IMAGEN_3_CAPABILITY in MASK_CAPABLE_MODELS
-    assert Model.IMAGEN_4_STANDARD in GENERATION_ONLY_MODELS
-    assert Model.IMAGEN_4_STANDARD not in EDIT_CAPABLE_MODELS
-    assert Model.GPT_IMAGE_1 in EDIT_CAPABLE_MODELS
-    assert Model.GPT_IMAGE_1 in MASK_CAPABLE_MODELS
+    for model in edit_only_models:
+        assert not ModelFactory.model_supports_generation(model), f"{model.value} should not support generation"
+        # These models should fail validation
+        error = ModelFactory.validate_generation_request(model)
+        assert error is not None, f"{model.value} should fail generation validation"
+        assert error.code == "unsupported_operation"
+        assert "does not support standalone image generation" in error.message
+
+
+def test_dynamic_capability_discovery():
+    """Test that dynamic capability discovery works correctly."""
+    # Test specific model capabilities by querying the factory
+
+    # IMAGEN_3_CAPABILITY should be edit-only (no generation)
+    assert not ModelFactory.model_supports_generation(Model.IMAGEN_3_CAPABILITY), "IMAGEN_3_CAPABILITY should not support generation"
+    assert ModelFactory.model_supports_editing(Model.IMAGEN_3_CAPABILITY), "IMAGEN_3_CAPABILITY should support editing"
+    assert ModelFactory.model_supports_masking(Model.IMAGEN_3_CAPABILITY), "IMAGEN_3_CAPABILITY should support masking"
+
+    # IMAGEN_4_STANDARD should be generation-only (no editing)
+    assert ModelFactory.model_supports_generation(Model.IMAGEN_4_STANDARD), "IMAGEN_4_STANDARD should support generation"
+    assert not ModelFactory.model_supports_editing(Model.IMAGEN_4_STANDARD), "IMAGEN_4_STANDARD should not support editing"
+    assert not ModelFactory.model_supports_masking(Model.IMAGEN_4_STANDARD), "IMAGEN_4_STANDARD should not support masking"
+
+    # GPT_IMAGE_1 should support both generation and editing
+    assert ModelFactory.model_supports_generation(Model.GPT_IMAGE_1), "GPT_IMAGE_1 should support generation"
+    assert ModelFactory.model_supports_editing(Model.GPT_IMAGE_1), "GPT_IMAGE_1 should support editing"
+    assert ModelFactory.model_supports_masking(Model.GPT_IMAGE_1), "GPT_IMAGE_1 should support masking"
+
+    # DALL_E_3 should be generation-only
+    assert ModelFactory.model_supports_generation(Model.DALL_E_3), "DALL_E_3 should support generation"
+    assert not ModelFactory.model_supports_editing(Model.DALL_E_3), "DALL_E_3 should not support editing"
+    assert not ModelFactory.model_supports_masking(Model.DALL_E_3), "DALL_E_3 should not support masking"
